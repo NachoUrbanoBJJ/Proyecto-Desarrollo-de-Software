@@ -10,7 +10,7 @@ const loadGameState = (): GameState => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) return JSON.parse(saved);
-  } catch {}
+  } catch { }
   return { currentLevel: 1, unlockedLevels: [1], scores: {} };
 };
 
@@ -50,7 +50,7 @@ const playTone = (freq: number, duration: number, type: OscillatorType = 'sine')
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     osc.stop(ctx.currentTime + duration);
-  } catch {}
+  } catch { }
 };
 
 const playCollisionSound = () => playTone(150, 0.2, 'sawtooth');
@@ -163,7 +163,7 @@ export default function App() {
 
   const dismissTutorial = () => {
     setShowTutorial(false);
-    try { localStorage.setItem('isp21-tutorial-seen', '1'); } catch {}
+    try { localStorage.setItem('isp21-tutorial-seen', '1'); } catch { }
   };
 
   const executeCode = useCallback(async () => {
@@ -181,8 +181,8 @@ export default function App() {
       currentPlayerState = calculateNextState(currentPlayerState, cmd, currentLevel.map);
 
       if (currentPlayerState.position.x === prevState.position.x &&
-          currentPlayerState.position.y === prevState.position.y &&
-          (typeof cmd === 'string' && cmd === 'AVANZAR')) {
+        currentPlayerState.position.y === prevState.position.y &&
+        (typeof cmd === 'string' && cmd === 'AVANZAR')) {
         setShowCollision(true);
         playCollisionSound();
         setTimeout(() => setShowCollision(false), 500);
@@ -317,7 +317,7 @@ export default function App() {
                   <div key={`${x}-${y}`} className={`cell cell-${cell}`}>
                     {isPlayerHere && (
                       <span className={`player dir-${player.direction} ${showVictory ? 'player-victory' : ''}`}>
-                        🏃
+                        🤖
                       </span>
                     )}
                     {cell === 2 && !isPlayerHere && <span>💻</span>}
