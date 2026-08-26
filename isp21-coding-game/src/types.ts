@@ -37,6 +37,16 @@ export type CommandBlock =
 
 export type Command = SimpleCommand | CommandBlock;
 
+export interface ExecutionState {
+    activeCommandIndex: number;
+    activeTopLevelIndex: number;
+    isExecuting: boolean;
+    executionSpeed: number;
+    expandedLength: number;
+}
+
+export type ExecutionStatus = 'idle' | 'running' | 'finished';
+
 export const isSimpleCommand = (cmd: Command): cmd is SimpleCommand =>
     typeof cmd === 'string';
 

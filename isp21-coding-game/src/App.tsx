@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Command, PlayerState, GameState, CommandBlock, SimpleCommand } from './types';
-import { calculateNextState } from './gameLogic';
+import type { Command, PlayerState, GameState, CommandBlock, SimpleCommand, ExecutionState, ExecutionStatus, GridMap, Direction } from './types';
+import { calculateNextState, isWallAhead } from './gameLogic';
 import { LEVELS } from './levels';
 import './App.css';
 
@@ -80,9 +80,20 @@ export default function App() {
   const [isBuildingIf, setIsBuildingIf] = useState(false);
   const [ifInner, setIfInner] = useState<CommandBlock[]>([]);
 
+  const [executionState, setExecutionState] = useState<ExecutionState>({
+    activeCommandIndex: -1,
+    activeTopLevelIndex: -1,
+    isExecuting: false,
+    executionSpeed: 500,
+    expandedLength: 0,
+  });
+  const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('idle');
+  const [visitedCells, setVisitedCells] = useState<Set<string>>(new Set());
+  const [collidedCell, setCollidedCell] = useState<string | null>(null);
+  const [isWalking, setIsWalking] = useState(false);
+  const sequenceRef = useRef<HTMLDivElement>(null);
+
   const currentLevel = LEVELS.find(l => l.id === gameState.currentLevel) || LEVELS[0];
-  const playerRef = useRef(player);
-  playerRef.current = player;
 
   useEffect(() => {
     setPlayer(currentLevel.start);
@@ -90,7 +101,21 @@ export default function App() {
     setMessage("¡Ayuda al estudiante a llegar a la PC!");
     setShowCollision(false);
     setShowVictory(false);
+    setExecutionState({ activeCommandIndex: -1, activeTopLevelIndex: -1, isExecuting: false, executionSpeed: 500, expandedLength: 0 });
+    setExecutionStatus('idle');
+    setVisitedCells(new Set());
+    setCollidedCell(null);
+    setIsWalking(false);
   }, [gameState.currentLevel]);
+
+  useEffect(() => {
+    if (executionState.activeTopLevelIndex >= 0 && sequenceRef.current) {
+      const activeEl = sequenceRef.current.children[executionState.activeTopLevelIndex] as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [executionState.activeTopLevelIndex]);
 
   const addCommand = (cmd: Command) => {
     if (!isRunning && flattenCount(commands) < currentLevel.maxCommands) {
@@ -151,6 +176,11 @@ export default function App() {
     setMessage("Nivel reiniciado.");
     setShowCollision(false);
     setShowVictory(false);
+    setExecutionState({ activeCommandIndex: -1, activeTopLevelIndex: -1, isExecuting: false, executionSpeed: 500, expandedLength: 0 });
+    setExecutionStatus('idle');
+    setVisitedCells(new Set());
+    setCollidedCell(null);
+    setIsWalking(false);
     cancelBlock();
   };
 
@@ -166,33 +196,127 @@ export default function App() {
     try { localStorage.setItem('isp21-tutorial-seen', '1'); } catch { }
   };
 
+  const flattenCommands = useCallback((
+    cmds: Command[],
+    pos: { x: number; y: number },
+    dir: string,
+    map: GridMap,
+    parentIndex: number
+  ): { cmd: SimpleCommand; collision: boolean; commandIndex: number }[] => {
+    const result: { cmd: SimpleCommand; collision: boolean; commandIndex: number }[] = [];
+    let currentPos = { ...pos };
+    let currentDir = dir;
+
+    for (let i = 0; i < cmds.length; i++) {
+      const item = cmds[i];
+      if (typeof item === 'string') {
+        const state = calculateNextState(
+          { position: currentPos, direction: currentDir as Direction },
+          item, map
+        );
+        const collision = item === 'AVANZAR' &&
+          state.position.x === currentPos.x && state.position.y === currentPos.y;
+        result.push({ cmd: item, collision, commandIndex: parentIndex >= 0 ? parentIndex : i });
+        currentPos = state.position;
+        currentDir = state.direction;
+      } else if (item.type === 'repeat') {
+        for (let r = 0; r < item.times; r++) {
+          const inner = flattenCommands(item.children, currentPos, currentDir, map, i);
+          for (const step of inner) {
+            const st = calculateNextState(
+              { position: currentPos, direction: currentDir as Direction },
+              step.cmd, map
+            );
+            currentPos = st.position;
+            currentDir = st.direction;
+            result.push(step);
+          }
+        }
+      } else if (item.type === 'if_wall') {
+        if (isWallAhead({ position: currentPos, direction: currentDir as Direction }, map)) {
+          const inner = flattenCommands(item.children, currentPos, currentDir, map, i);
+          for (const step of inner) {
+            const st = calculateNextState(
+              { position: currentPos, direction: currentDir as Direction },
+              step.cmd, map
+            );
+            currentPos = st.position;
+            currentDir = st.direction;
+            result.push(step);
+          }
+        }
+      }
+    }
+
+    return result;
+  }, []);
+
   const executeCode = useCallback(async () => {
     if (commands.length === 0) return;
 
     setIsRunning(true);
+    setExecutionStatus('running');
     setMessage("Ejecutando código...");
     setShowCollision(false);
     setShowVictory(false);
+    setVisitedCells(new Set([`${player.position.x},${player.position.y}`]));
+    setCollidedCell(null);
 
+    const expanded = flattenCommands(commands, player.position, player.direction, currentLevel.map, -1);
     let currentPlayerState = { ...player };
+    const speed = executionState.executionSpeed;
 
-    for (const cmd of commands) {
-      const prevState = { ...currentPlayerState };
-      currentPlayerState = calculateNextState(currentPlayerState, cmd, currentLevel.map);
+    setExecutionState(prev => ({
+      ...prev,
+      activeCommandIndex: -1,
+      activeTopLevelIndex: -1,
+      isExecuting: true,
+      expandedLength: expanded.length,
+    }));
 
-      if (currentPlayerState.position.x === prevState.position.x &&
-        currentPlayerState.position.y === prevState.position.y &&
-        (typeof cmd === 'string' && cmd === 'AVANZAR')) {
+    for (let i = 0; i < expanded.length; i++) {
+      const step = expanded[i];
+
+      setShowCollision(false);
+      setCollidedCell(null);
+
+      setExecutionState(prev => ({
+        ...prev,
+        activeCommandIndex: i,
+        activeTopLevelIndex: step.commandIndex,
+        isExecuting: true,
+      }));
+
+      currentPlayerState = calculateNextState(currentPlayerState, step.cmd, currentLevel.map);
+
+      setVisitedCells(prev =>
+        new Set([...prev, `${currentPlayerState.position.x},${currentPlayerState.position.y}`])
+      );
+
+      if (step.collision) {
         setShowCollision(true);
+        setCollidedCell(`${currentPlayerState.position.x},${currentPlayerState.position.y}`);
+        setIsWalking(false);
         playCollisionSound();
-        setTimeout(() => setShowCollision(false), 500);
       } else {
         playStepSound();
+        setIsWalking(true);
+        setTimeout(() => setIsWalking(false), 150);
       }
 
       setPlayer({ ...currentPlayerState });
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, speed));
     }
+
+    setExecutionState(prev => ({
+      ...prev,
+      activeCommandIndex: -1,
+      activeTopLevelIndex: -1,
+      isExecuting: false,
+    }));
+    setShowCollision(false);
+    setCollidedCell(null);
+    setExecutionStatus('finished');
 
     const { x, y } = currentPlayerState.position;
     if (currentLevel.map[y]?.[x] === 2) {
@@ -222,11 +346,39 @@ export default function App() {
     }
 
     setIsRunning(false);
-  }, [commands, player, currentLevel, gameState]);
+    setExecutionStatus('finished');
+  }, [commands, player, currentLevel, gameState, executionState.executionSpeed, flattenCommands]);
 
   const commandCount = flattenCount(commands);
   const remaining = currentLevel.maxCommands - commandCount;
+
+  const executionProgress = executionState.isExecuting && executionState.expandedLength > 0
+    ? ((executionState.activeCommandIndex + 1) / executionState.expandedLength) * 100
+    : 0;
   const isBuilding = isBuildingRepeat || isBuildingIf;
+
+  const setSpeed = (speed: number) => {
+    setExecutionState(prev => ({ ...prev, executionSpeed: speed }));
+  };
+
+  const getCellClasses = (x: number, y: number, cell: number) => {
+    const classes: string[] = ['cell', `cell-${cell}`];
+    const key = `${x},${y}`;
+    if (visitedCells.has(key) && cell !== 1) classes.push('visited');
+    if (collidedCell === key) classes.push('collision-target');
+    return classes.join(' ');
+  };
+
+  const getCommandBlockClasses = (cmd: Command, index: number) => {
+    const base = typeof cmd === 'string' ? `cmd-${cmd.toLowerCase()}` : 'cmd-block';
+    const classes: string[] = ['command-block', base];
+    if (executionState.activeTopLevelIndex === index) {
+      classes.push('active');
+    } else if (executionState.activeTopLevelIndex > index) {
+      classes.push('executed');
+    }
+    return classes.join(' ');
+  };
 
   const renderStars = (levelId: number, size?: string) => {
     const score = gameState.scores[levelId] || 0;
@@ -303,6 +455,13 @@ export default function App() {
         </div>
       </header>
 
+      <div className={`execution-progress ${executionStatus === 'idle' ? 'hidden' : ''}`}>
+        <div
+          className="execution-progress-bar"
+          style={{ width: `${executionProgress}%` }}
+        />
+      </div>
+
       <p className={`message ${showVictory ? 'victory' : ''} ${showCollision ? 'collision' : ''}`}>
         {message}
       </p>
@@ -314,9 +473,9 @@ export default function App() {
               {row.map((cell, x) => {
                 const isPlayerHere = player.position.x === x && player.position.y === y;
                 return (
-                  <div key={`${x}-${y}`} className={`cell cell-${cell}`}>
+                  <div key={`${x}-${y}`} className={getCellClasses(x, y, cell)}>
                     {isPlayerHere && (
-                      <span className={`player dir-${player.direction} ${showVictory ? 'player-victory' : ''}`}>
+                      <span className={`player dir-${player.direction} ${showVictory ? 'player-victory' : ''} ${showCollision ? 'colliding' : ''} ${isWalking ? 'walking' : ''}`}>
                         🤖
                       </span>
                     )}
@@ -424,12 +583,25 @@ export default function App() {
           )}
 
           <h3>Tu Secuencia:</h3>
-          <div className="sequence">
+          {executionStatus !== 'idle' && (
+            <div className="speed-selector">
+              <label>Velocidad:</label>
+              <button className={`speed-btn ${executionState.executionSpeed === 800 ? 'active' : ''}`}
+                onClick={() => setSpeed(800)} type="button">Lento</button>
+              <button className={`speed-btn ${executionState.executionSpeed === 500 ? 'active' : ''}`}
+                onClick={() => setSpeed(500)} type="button">Normal</button>
+              <button className={`speed-btn ${executionState.executionSpeed === 200 ? 'active' : ''}`}
+                onClick={() => setSpeed(200)} type="button">Rápido</button>
+              <button className={`speed-btn ${executionState.executionSpeed === 80 ? 'active' : ''}`}
+                onClick={() => setSpeed(80)} type="button">⚡</button>
+            </div>
+          )}
+          <div className="sequence" ref={sequenceRef}>
             {commands.length === 0 && !isBuilding && (
               <div className="empty-sequence">Agrega comandos aquí...</div>
             )}
             {commands.map((cmd, index) => (
-              <div key={index} className={`command-block ${typeof cmd === 'string' ? `cmd-${cmd.toLowerCase()}` : 'cmd-block'}`}>
+              <div key={index} className={getCommandBlockClasses(cmd, index)}>
                 <span className="cmd-number">{index + 1}</span>
                 <span className="cmd-text">
                   {typeof cmd === 'string' ? cmd : (

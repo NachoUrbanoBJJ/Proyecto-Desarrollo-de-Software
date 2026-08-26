@@ -64,17 +64,44 @@
   justify-content: center;
   font-size: 26px;
   border: 1px solid #ccc;
-  transition: background-color 0.2s;
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.2s ease,
+              box-shadow 0.2s ease;
 }
 
 .cell-0 { background-color: #f0f0f0; }
 .cell-1 { background-color: #333333; }
 .cell-2 { background-color: #d4edda; }
 
+.cell.visited {
+  background-color: #e8f5e9;
+  box-shadow: inset 0 0 8px rgba(76, 175, 80, 0.3);
+}
+
+.cell.collision-target {
+  animation: cell-flash-red 0.4s ease;
+}
+
+@keyframes cell-flash-red {
+  0%, 100% { background-color: #f0f0f0; }
+  50% { background-color: #ef9a9a; }
+}
+
 /* ========== PLAYER ========== */
 .player {
   display: inline-block;
-  transition: transform 0.3s ease;
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.player.colliding {
+  animation: player-shake 0.3s ease;
+}
+
+@keyframes player-shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-4px); }
+  50%      { transform: translateX(4px); }
+  75%      { transform: translateX(-2px); }
 }
 
 .dir-UP    { transform: rotate(0deg); }
@@ -204,6 +231,53 @@
   border-color: #dc3545 !important;
 }
 
+/* ========== COMMAND HIGHLIGHTING ========== */
+@keyframes active-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 193, 7, 0.5); }
+  50% { box-shadow: 0 0 18px rgba(255, 193, 7, 0.8); }
+}
+
+.command-block.active {
+  background-color: #fff3cd;
+  border-left-width: 6px;
+  transform: scale(1.02);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: active-pulse 0.8s ease-in-out infinite;
+}
+
+.command-block.active .cmd-text {
+  color: #856404;
+  font-weight: 800;
+}
+
+.command-block.executed {
+  opacity: 0.5;
+  background-color: #f8f9fa;
+  transition: opacity 0.3s ease, background-color 0.3s ease;
+}
+
+.command-block.active.cmd-avanzar   { border-left-color: #155724; animation-name: active-pulse-avanzar; }
+.command-block.active.cmd-girar_izq { border-left-color: #854d0e; animation-name: active-pulse-izq; }
+.command-block.active.cmd-girar_der { border-left-color: #382d8b; animation-name: active-pulse-der; }
+.command-block.active.cmd-block     { border-left-color: #0c5460; animation-name: active-pulse-block; }
+
+@keyframes active-pulse-avanzar {
+  0%, 100% { box-shadow: 0 0 8px rgba(40, 167, 69, 0.4); }
+  50% { box-shadow: 0 0 18px rgba(40, 167, 69, 0.7); }
+}
+@keyframes active-pulse-izq {
+  0%, 100% { box-shadow: 0 0 8px rgba(253, 126, 20, 0.4); }
+  50% { box-shadow: 0 0 18px rgba(253, 126, 20, 0.7); }
+}
+@keyframes active-pulse-der {
+  0%, 100% { box-shadow: 0 0 8px rgba(111, 66, 193, 0.4); }
+  50% { box-shadow: 0 0 18px rgba(111, 66, 193, 0.7); }
+}
+@keyframes active-pulse-block {
+  0%, 100% { box-shadow: 0 0 8px rgba(23, 162, 184, 0.4); }
+  50% { box-shadow: 0 0 18px rgba(23, 162, 184, 0.7); }
+}
+
 /* ========== ACTIONS ========== */
 .actions {
   display: flex;
@@ -230,6 +304,66 @@
 .btn-levels:hover {
   background: #666;
   color: #fff;
+}
+
+/* ========== EXECUTION PROGRESS ========== */
+.execution-progress {
+  width: 100%;
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 8px 0;
+  transition: opacity 0.3s ease, height 0.3s ease, margin 0.3s ease;
+}
+
+.execution-progress.hidden {
+  opacity: 0;
+  height: 0;
+  margin: 0;
+}
+
+.execution-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #007bff, #28a745);
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ========== SPEED SELECTOR ========== */
+.speed-selector {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  margin: 6px 0;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.speed-selector label {
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.speed-btn {
+  padding: 3px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.speed-btn.active {
+  background: #007bff;
+  color: #fff;
+  border-color: #007bff;
+}
+
+.speed-btn:hover:not(.active) {
+  background: #e9ecef;
 }
 
 /* ========== LEVEL SELECT ========== */
@@ -434,6 +568,20 @@
   font-size: 1.1rem;
 }
 
+.message.transitioning {
+  animation: message-fade 0.4s ease;
+}
+
+@keyframes message-fade {
+  0%   { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.palette button:active:not(:disabled) {
+  transform: scale(0.95);
+  transition: transform 0.1s ease;
+}
+
 /* ========== TUTORIAL OVERLAY ========== */
 .tutorial-overlay {
   position: fixed;
@@ -543,4 +691,76 @@
 
 .level-card .stars {
   margin-top: 4px;
+}
+
+/* ========== ENHANCED ANIMATIONS ========== */
+
+@keyframes walk {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.player.walking {
+  animation: walk 0.15s ease;
+}
+
+@keyframes cell-visit-glow {
+  0% { box-shadow: inset 0 0 0 rgba(76, 175, 80, 0); }
+  100% { box-shadow: inset 0 0 8px rgba(76, 175, 80, 0.3); }
+}
+
+.cell.visited {
+  animation: cell-visit-glow 0.4s ease forwards;
+}
+
+@keyframes star-glow {
+  0%, 100% { text-shadow: 0 0 4px rgba(244, 196, 48, 0.4); }
+  50% { text-shadow: 0 0 10px rgba(244, 196, 48, 0.8); }
+}
+
+.stars {
+  animation: star-glow 2s ease-in-out infinite;
+}
+
+@keyframes goal-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.cell-2 span {
+  animation: goal-pulse 1.5s ease-in-out infinite;
+  display: inline-block;
+}
+
+@keyframes progress-shine {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.execution-progress-bar {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    #007bff 0%,
+    #28a745 50%,
+    #007bff 100%
+  );
+  background-size: 200% 100%;
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: progress-shine 2s linear infinite;
+}
+
+@keyframes victory-bounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-10px); }
+  60% { transform: translateY(-5px); }
+}
+
+.message.victory {
+  animation: victory-bounce 1s ease;
+}
+
+.grid:not(.shake) .cell {
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
