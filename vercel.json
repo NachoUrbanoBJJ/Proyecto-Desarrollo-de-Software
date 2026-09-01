@@ -1,0 +1,5 @@
+{
+  "rootDirectory": "isp21-coding-game",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
+}
