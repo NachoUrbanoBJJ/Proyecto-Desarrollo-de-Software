@@ -110,8 +110,8 @@ export default function App() {
 
   useEffect(() => {
     if (executionState.activeTopLevelIndex >= 0 && sequenceRef.current) {
-      const activeEl = sequenceRef.current.children[executionState.activeTopLevelIndex] as HTMLElement;
-      if (activeEl) {
+      const activeEl = sequenceRef.current.children[executionState.activeTopLevelIndex] as HTMLElement | undefined;
+      if (activeEl && typeof activeEl.scrollIntoView === 'function') {
         activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     }
@@ -209,6 +209,7 @@ export default function App() {
 
     for (let i = 0; i < cmds.length; i++) {
       const item = cmds[i];
+
       if (typeof item === 'string') {
         const state = calculateNextState(
           { position: currentPos, direction: currentDir as Direction },
@@ -219,7 +220,23 @@ export default function App() {
         result.push({ cmd: item, collision, commandIndex: parentIndex >= 0 ? parentIndex : i });
         currentPos = state.position;
         currentDir = state.direction;
-      } else if (item.type === 'repeat') {
+        continue;
+      }
+
+      if (item.type === 'command') {
+        const state = calculateNextState(
+          { position: currentPos, direction: currentDir as Direction },
+          item.command, map
+        );
+        const collision = item.command === 'AVANZAR' &&
+          state.position.x === currentPos.x && state.position.y === currentPos.y;
+        result.push({ cmd: item.command, collision, commandIndex: parentIndex >= 0 ? parentIndex : i });
+        currentPos = state.position;
+        currentDir = state.direction;
+        continue;
+      }
+
+      if (item.type === 'repeat') {
         for (let r = 0; r < item.times; r++) {
           const inner = flattenCommands(item.children, currentPos, currentDir, map, i);
           for (const step of inner) {

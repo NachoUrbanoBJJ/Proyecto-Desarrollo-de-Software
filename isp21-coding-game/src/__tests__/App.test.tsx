@@ -71,4 +71,5 @@ describe('App', () => {
     dismissTutorial();
     expect(screen.queryByText('¿Cómo jugar?')).toBeNull();
   });
+
 });
