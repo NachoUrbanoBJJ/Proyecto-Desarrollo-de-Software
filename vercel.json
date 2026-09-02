@@ -1,5 +1,4 @@
 {
-  "rootDirectory": "isp21-coding-game",
   "installCommand": "npm ci --workspace=application",
   "buildCommand": "npm run build --workspace=application",
   "outputDirectory": "application/dist"
