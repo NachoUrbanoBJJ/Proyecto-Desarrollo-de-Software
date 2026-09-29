@@ -24,7 +24,7 @@ export const isWallAhead = (state: PlayerState, map: GridMap): boolean => {
 
 const executeSimple = (state: PlayerState, command: SimpleCommand, map: GridMap): PlayerState => {
     const { position: pos, direction: dir } = state;
-    let newPos = { ...pos };
+    const newPos = { ...pos };
     let newDir = dir;
 
     if (command === 'GIRAR_DER') {

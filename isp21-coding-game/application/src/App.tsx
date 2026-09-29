@@ -47,8 +47,9 @@ const loadGameState = (): GameState => {
       scores: sanitizeRecord(parsed.scores, 3),
       points: sanitizeRecord(parsed.points, 100),
     };
-  } catch { }
-  return fallback;
+  } catch {
+    return fallback;
+  }
 };
 
 const saveGameState = (state: GameState) => {
@@ -104,7 +105,9 @@ const playTone = (freq: number, duration: number, type: OscillatorType = 'sine')
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     osc.stop(ctx.currentTime + duration);
-  } catch { }
+  } catch {
+    return;
+  }
 };
 
 const cancelPendingSounds = () => {
@@ -123,9 +126,88 @@ const playVictorySound = () => {
 };
 const playStepSound = () => playTone(440, 0.05);
 
+interface FlatStep {
+  cmd: SimpleCommand;
+  collision: boolean;
+  commandIndex: number;
+}
+
+function flattenCommands(
+  cmds: Command[],
+  pos: { x: number; y: number },
+  dir: string,
+  map: GridMap,
+  parentIndex: number
+): FlatStep[] {
+  const result: FlatStep[] = [];
+  let currentPos = { ...pos };
+  let currentDir = dir;
+
+  for (let i = 0; i < cmds.length; i++) {
+    const item = cmds[i];
+
+    if (typeof item === 'string') {
+      const state = calculateNextState(
+        { position: currentPos, direction: currentDir as Direction },
+        item, map
+      );
+      const collision = item === 'AVANZAR' &&
+        state.position.x === currentPos.x && state.position.y === currentPos.y;
+      result.push({ cmd: item, collision, commandIndex: parentIndex >= 0 ? parentIndex : i });
+      currentPos = state.position;
+      currentDir = state.direction;
+      continue;
+    }
+
+    if (item.type === 'command') {
+      const state = calculateNextState(
+        { position: currentPos, direction: currentDir as Direction },
+        item.command, map
+      );
+      const collision = item.command === 'AVANZAR' &&
+        state.position.x === currentPos.x && state.position.y === currentPos.y;
+      result.push({ cmd: item.command, collision, commandIndex: parentIndex >= 0 ? parentIndex : i });
+      currentPos = state.position;
+      currentDir = state.direction;
+      continue;
+    }
+
+    if (item.type === 'repeat') {
+      for (let r = 0; r < item.times; r++) {
+        const inner = flattenCommands(item.children, currentPos, currentDir, map, i);
+        for (const step of inner) {
+          const st = calculateNextState(
+            { position: currentPos, direction: currentDir as Direction },
+            step.cmd, map
+          );
+          currentPos = st.position;
+          currentDir = st.direction;
+          result.push(step);
+        }
+      }
+    } else if (item.type === 'if_wall') {
+      if (isWallAhead({ position: currentPos, direction: currentDir as Direction }, map)) {
+        const inner = flattenCommands(item.children, currentPos, currentDir, map, i);
+        for (const step of inner) {
+          const st = calculateNextState(
+            { position: currentPos, direction: currentDir as Direction },
+            step.cmd, map
+          );
+          currentPos = st.position;
+          currentDir = st.direction;
+          result.push(step);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(loadGameState);
-  const [player, setPlayer] = useState<PlayerState>(LEVELS[0].start);
+  const currentLevel = LEVELS.find(l => l.id === gameState.currentLevel) || LEVELS[0];
+  const [player, setPlayer] = useState<PlayerState>(() => currentLevel.start);
   const [commands, setCommands] = useState<Command[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [message, setMessage] = useState("¡Ayuda al estudiante a llegar a la PC!");
@@ -162,8 +244,6 @@ export default function App() {
   const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
   const celebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const currentLevel = LEVELS.find(l => l.id === gameState.currentLevel) || LEVELS[0];
-
   const clearCelebration = useCallback(() => {
     if (celebrationTimer.current) {
       clearTimeout(celebrationTimer.current);
@@ -172,27 +252,10 @@ export default function App() {
     setCelebration('none');
   }, []);
 
-
   useEffect(() => () => {
     if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
     cancelPendingSounds();
   }, []);
-
-  useEffect(() => {
-    setPlayer(currentLevel.start);
-    setCommands([]);
-    setMessage("¡Ayuda al estudiante a llegar a la PC!");
-    setShowCollision(false);
-    setShowVictory(false);
-    setExecutionState({ activeCommandIndex: -1, activeTopLevelIndex: -1, isExecuting: false, executionSpeed: 500, expandedLength: 0 });
-    setExecutionStatus('idle');
-    setVisitedCells(new Set());
-    setCollidedCell(null);
-    setIsWalking(false);
-    setExecutedMoves(0);
-    setRunResult(null);
-    clearCelebration();
-  }, [gameState.currentLevel, clearCelebration]);
 
   useEffect(() => {
     if (executionState.activeTopLevelIndex >= 0 && sequenceRef.current) {
@@ -266,12 +329,12 @@ export default function App() {
     setIsBuildingIf(false);
   };
 
-  const resetLevel = () => {
+  const resetRunState = useCallback((text: string, start: PlayerState) => {
     cancelPendingSounds();
     clearCelebration();
     setCommands([]);
-    setPlayer(currentLevel.start);
-    setMessage("Nivel reiniciado.");
+    setPlayer(start);
+    setMessage(text);
     setShowCollision(false);
     setShowVictory(false);
     setExecutionState({ activeCommandIndex: -1, activeTopLevelIndex: -1, isExecuting: false, executionSpeed: 500, expandedLength: 0 });
@@ -281,96 +344,30 @@ export default function App() {
     setIsWalking(false);
     setExecutedMoves(0);
     setRunResult(null);
+  }, [clearCelebration]);
+
+  const resetLevel = () => {
+    resetRunState("Nivel reiniciado.", currentLevel.start);
     cancelBlock();
   };
 
   const selectLevel = (levelId: number) => {
-    if (gameState.unlockedLevels.includes(levelId)) {
+    const target = LEVELS.find(l => l.id === levelId);
+    if (gameState.unlockedLevels.includes(levelId) && target) {
       setShowLevelSelect(false);
       setGameState(prev => {
         const next = { ...prev, currentLevel: levelId };
         saveGameState(next);
         return next;
       });
+      resetRunState("¡Ayuda al estudiante a llegar a la PC!", target.start);
     }
   };
 
   const dismissTutorial = () => {
     setShowTutorial(false);
-    try { localStorage.setItem('isp21-tutorial-seen', '1'); } catch { }
+    try { localStorage.setItem('isp21-tutorial-seen', '1'); } catch { return; }
   };
-
-  const flattenCommands = useCallback((
-    cmds: Command[],
-    pos: { x: number; y: number },
-    dir: string,
-    map: GridMap,
-    parentIndex: number
-  ): { cmd: SimpleCommand; collision: boolean; commandIndex: number }[] => {
-    const result: { cmd: SimpleCommand; collision: boolean; commandIndex: number }[] = [];
-    let currentPos = { ...pos };
-    let currentDir = dir;
-
-    for (let i = 0; i < cmds.length; i++) {
-      const item = cmds[i];
-
-      if (typeof item === 'string') {
-        const state = calculateNextState(
-          { position: currentPos, direction: currentDir as Direction },
-          item, map
-        );
-        const collision = item === 'AVANZAR' &&
-          state.position.x === currentPos.x && state.position.y === currentPos.y;
-        result.push({ cmd: item, collision, commandIndex: parentIndex >= 0 ? parentIndex : i });
-        currentPos = state.position;
-        currentDir = state.direction;
-        continue;
-      }
-
-      if (item.type === 'command') {
-        const state = calculateNextState(
-          { position: currentPos, direction: currentDir as Direction },
-          item.command, map
-        );
-        const collision = item.command === 'AVANZAR' &&
-          state.position.x === currentPos.x && state.position.y === currentPos.y;
-        result.push({ cmd: item.command, collision, commandIndex: parentIndex >= 0 ? parentIndex : i });
-        currentPos = state.position;
-        currentDir = state.direction;
-        continue;
-      }
-
-      if (item.type === 'repeat') {
-        for (let r = 0; r < item.times; r++) {
-          const inner = flattenCommands(item.children, currentPos, currentDir, map, i);
-          for (const step of inner) {
-            const st = calculateNextState(
-              { position: currentPos, direction: currentDir as Direction },
-              step.cmd, map
-            );
-            currentPos = st.position;
-            currentDir = st.direction;
-            result.push(step);
-          }
-        }
-      } else if (item.type === 'if_wall') {
-        if (isWallAhead({ position: currentPos, direction: currentDir as Direction }, map)) {
-          const inner = flattenCommands(item.children, currentPos, currentDir, map, i);
-          for (const step of inner) {
-            const st = calculateNextState(
-              { position: currentPos, direction: currentDir as Direction },
-              step.cmd, map
-            );
-            currentPos = st.position;
-            currentDir = st.direction;
-            result.push(step);
-          }
-        }
-      }
-    }
-
-    return result;
-  }, []);
 
   const executeCode = useCallback(async () => {
     if (commands.length === 0) return;
@@ -482,7 +479,7 @@ export default function App() {
 
     setIsRunning(false);
     setExecutionStatus('finished');
-  }, [commands, player, currentLevel, executionState.executionSpeed, flattenCommands]);
+  }, [commands, player, currentLevel, executionState.executionSpeed]);
 
   const blockTotal = blockCount(commands);
   const remaining = currentLevel.maxBlocks - blockTotal;
@@ -494,14 +491,15 @@ export default function App() {
 
   const advanceLevel = useCallback(() => {
     const nextId = currentLevel.id + 1;
-    if (nextId > LEVELS.length) return;
-    clearCelebration();
+    const target = LEVELS.find(l => l.id === nextId);
+    if (!target) return;
     setGameState(prev => {
       const next = { ...prev, currentLevel: nextId };
       saveGameState(next);
       return next;
     });
-  }, [currentLevel.id, clearCelebration]);
+    resetRunState("¡Ayuda al estudiante a llegar a la PC!", target.start);
+  }, [currentLevel.id, resetRunState]);
 
   const continueFromModal = useCallback(() => {
     if (isLastLevel) {

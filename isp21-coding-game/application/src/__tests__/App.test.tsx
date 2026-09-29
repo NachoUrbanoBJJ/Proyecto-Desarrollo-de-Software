@@ -366,4 +366,51 @@ describe('App', () => {
     spy.mockRestore();
     expect(spy.mock.calls).toEqual([]);
   });
+
+  it('arranca en el nivel guardado con el estudiante en su posicion inicial', () => {
+    localStorage.setItem('isp21-coding-game-state', JSON.stringify({
+      currentLevel: 3,
+      unlockedLevels: [1, 2, 3],
+      scores: { 1: 3, 2: 3 },
+      points: { 1: 100, 2: 100 },
+    }));
+
+    render(<App />);
+    dismissTutorial();
+
+    expect(screen.getByText(/ISP21: Refactor/)).toBeTruthy();
+    expect(screen.getByText('Nivel 3 de 6')).toBeTruthy();
+    expect(metricValue('Óptimo')).toBe('14');
+    expect(statValue('Bloques')).toBe('0/20');
+    expect(metricValue('Movimientos')).toBe('0');
+    expect(screen.getByText('Agrega comandos aquí...')).toBeTruthy();
+
+    const playerEl = document.querySelector('.player') as HTMLElement;
+    const cellEl = playerEl.parentElement as HTMLElement;
+    const rowEl = cellEl.parentElement as HTMLElement;
+    const gridEl = rowEl.parentElement as HTMLElement;
+    const position = {
+      x: Array.from(rowEl.children).indexOf(cellEl),
+      y: Array.from(gridEl.children).indexOf(rowEl),
+    };
+    expect(position).toEqual({ x: 1, y: 3 });
+    expect(playerEl.className).toContain('dir-RIGHT');
+  });
+
+  it('al elegir otro nivel en el selector, reinicia el tablero de ese nivel', async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    dismissTutorial();
+    addSequence(SOLUTIONS[1]);
+    fireEvent.click(screen.getByText('▶ Ejecutar'));
+    await runToEnd(8000);
+
+    fireEvent.click(screen.getByText('Niveles'));
+    fireEvent.click(screen.getByText('Nivel 1').closest('button') as HTMLButtonElement);
+
+    expect(screen.getByText('Nivel 1 de 6')).toBeTruthy();
+    expect(statValue('Bloques')).toBe('0/6');
+    expect(metricValue('Óptimo')).toBe('3');
+    expect(metricValue('Puntuación')).toBe('—/100');
+  });
 });
