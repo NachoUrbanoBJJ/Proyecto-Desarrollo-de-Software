@@ -71,6 +71,17 @@ const runToEnd = async (totalMs: number) => {
   });
 };
 
+const playerPosition = () => {
+  const playerEl = document.querySelector('.player') as HTMLElement;
+  const cellEl = playerEl.parentElement as HTMLElement;
+  const rowEl = cellEl.parentElement as HTMLElement;
+  const gridEl = rowEl.parentElement as HTMLElement;
+  return {
+    x: Array.from(rowEl.children).indexOf(cellEl),
+    y: Array.from(gridEl.children).indexOf(rowEl),
+  };
+};
+
 describe('App', () => {
   it('renderiza el título del nivel', () => {
     render(<App />);
@@ -144,6 +155,48 @@ describe('App', () => {
     fireEvent.click(screen.getByText('↻ Reset'));
     expect(statValue('Bloques')).toBe('0/6');
     expect(metricValue('Movimientos')).toBe('0');
+  });
+
+  it('limpia la secuencia sin mover al personaje de su posicion actual', async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    dismissTutorial();
+
+    addSequence(av(1));
+    fireEvent.click(screen.getByText('▶ Ejecutar'));
+    await runToEnd(6000);
+
+    expect(metricValue('Movimientos')).toBe('1');
+    expect(playerPosition()).toEqual({ x: 2, y: 1 });
+
+    fireEvent.click(screen.getByText(/Limpiar/));
+
+    expect(statValue('Bloques')).toBe('0/6');
+    expect(metricValue('Movimientos')).toBe('0');
+    expect(playerPosition()).toEqual({ x: 2, y: 1 });
+    expect(document.querySelector('.player')?.className).toContain('dir-RIGHT');
+  });
+
+  it('limpia la secuencia desde la posicion inicial sin ejecutar', () => {
+    render(<App />);
+    dismissTutorial();
+    addSequence(av(2));
+    expect(playerPosition()).toEqual({ x: 1, y: 1 });
+
+    fireEvent.click(screen.getByText(/Limpiar/));
+
+    expect(statValue('Bloques')).toBe('0/6');
+    expect(playerPosition()).toEqual({ x: 1, y: 1 });
+  });
+
+  it('deshabilita limpiar cuando no hay nada que limpiar', () => {
+    render(<App />);
+    dismissTutorial();
+    const clear = screen.getByText(/Limpiar/) as HTMLButtonElement;
+    expect(clear.disabled).toBe(true);
+
+    addSequence(av(1));
+    expect((screen.getByText(/Limpiar/) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('rechaza un bloque repeat que supera el presupuesto', () => {

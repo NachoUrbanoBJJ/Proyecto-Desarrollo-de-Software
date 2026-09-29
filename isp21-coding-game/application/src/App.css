@@ -533,6 +533,18 @@
   background-color: var(--danger-hover) !important;
 }
 
+.btn-clear {
+  flex: 1 1 0;
+  background-color: var(--surface-2) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+  box-shadow: none;
+}
+
+.btn-clear:hover:not(:disabled) {
+  background-color: var(--surface-3) !important;
+}
+
 .btn-levels {
   margin-top: 4px;
   min-height: 46px;

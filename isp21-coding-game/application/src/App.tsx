@@ -351,6 +351,11 @@ export default function App() {
     cancelBlock();
   };
 
+  const clearSequence = () => {
+    resetRunState("Secuencia vaciada. El personaje se queda donde está.", player);
+    cancelBlock();
+  };
+
   const selectLevel = (levelId: number) => {
     const target = LEVELS.find(l => l.id === levelId);
     if (gameState.unlockedLevels.includes(levelId) && target) {
@@ -918,6 +923,14 @@ export default function App() {
             </button>
             <button onClick={resetLevel} disabled={isRunning} className="btn-reset">
               ↻ Reset
+            </button>
+            <button
+              onClick={clearSequence}
+              disabled={busy || (commands.length === 0 && !isBuildingRepeat && !isBuildingIf)}
+              className="btn-clear"
+              title="Vaciar los comandos sin mover al personaje de su posición actual"
+            >
+              🧹 Limpiar
             </button>
           </div>
 
