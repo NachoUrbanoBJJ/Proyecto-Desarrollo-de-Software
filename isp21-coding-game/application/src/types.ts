@@ -20,14 +20,15 @@ export interface Level {
     description: string;
     map: GridMap;
     start: PlayerState;
-    maxCommands: number;
-    optimalCommands: number;
+    maxBlocks: number;
+    optimalMoves: number;
 }
 
 export interface GameState {
     currentLevel: number;
     unlockedLevels: number[];
     scores: Record<number, number>;
+    points: Record<number, number>;
 }
 
 export type CommandBlock =

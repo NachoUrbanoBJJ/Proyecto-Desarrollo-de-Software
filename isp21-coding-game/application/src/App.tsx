@@ -1,45 +1,99 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import type { Command, PlayerState, GameState, CommandBlock, SimpleCommand, ExecutionState, ExecutionStatus, GridMap, Direction } from './types';
-import { calculateNextState, isWallAhead } from './gameLogic';
+import { calculateNextState, blockCount, calculateScore, calculateStars, isWallAhead } from './gameLogic';
 import { LEVELS } from './levels';
 import './App.css';
 
 const STORAGE_KEY = 'isp21-coding-game-state';
+const CELEBRATION_MS = 2500;
+const CONFETTI_COUNT = 64;
+const CONFETTI_COLORS = ['#f9c74f', '#f3722c', '#43aa8b', '#577590', '#b5179e', '#4cc9f0', '#90be6d'];
+
+const clampNumber = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
+};
+
+const sanitizeRecord = (raw: unknown, maxValue: number): Record<number, number> => {
+  const result: Record<number, number> = {};
+  if (!raw || typeof raw !== 'object') return result;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const num = Number(key);
+    const score = Number(value);
+    if (Number.isInteger(num) && Number.isFinite(score)) {
+      result[num] = Math.max(0, Math.min(maxValue, score));
+    }
+  }
+  return result;
+};
 
 const loadGameState = (): GameState => {
+  const fallback: GameState = { currentLevel: 1, unlockedLevels: [1], scores: {}, points: {} };
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
+    if (!saved) return fallback;
+    const parsed = JSON.parse(saved) as Partial<GameState>;
+    const validIds = LEVELS.map(level => level.id);
+    const currentLevel = validIds.includes(parsed.currentLevel as number)
+      ? (parsed.currentLevel as number)
+      : 1;
+    const unlocked = Array.isArray(parsed.unlockedLevels)
+      ? parsed.unlockedLevels.filter(id => validIds.includes(id))
+      : [1];
+    return {
+      currentLevel,
+      unlockedLevels: Array.from(new Set([...unlocked, currentLevel])),
+      scores: sanitizeRecord(parsed.scores, 3),
+      points: sanitizeRecord(parsed.points, 100),
+    };
   } catch { }
-  return { currentLevel: 1, unlockedLevels: [1], scores: {} };
+  return fallback;
 };
 
 const saveGameState = (state: GameState) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { return; }
 };
 
-const flattenCount = (cmds: Command[]): number => {
-  let count = 0;
-  for (const cmd of cmds) {
-    if (typeof cmd === 'string') {
-      count++;
-    } else if ('children' in cmd) {
-      count += flattenCount(cmd.children);
-      if ('times' in cmd) count += cmd.times - 1;
-    }
+interface ConfettiPiece {
+  id: number;
+  left: number;
+  delay: number;
+  duration: number;
+  color: string;
+  spin: number;
+  size: number;
+  round: boolean;
+}
+
+const buildConfetti = (): ConfettiPiece[] => Array.from({ length: CONFETTI_COUNT }, (_, index) => ({
+  id: index,
+  left: Math.random() * 100,
+  delay: Math.random() * 1.1,
+  duration: 1.9 + Math.random() * 1.3,
+  color: CONFETTI_COLORS[index % CONFETTI_COLORS.length],
+  spin: 360 + Math.round(Math.random() * 720),
+  size: 7 + Math.round(Math.random() * 6),
+  round: index % 3 === 0,
+}));
+
+let audioContext: AudioContext | null = null;
+const pendingTones: ReturnType<typeof setTimeout>[] = [];
+
+const getAudioContext = (): AudioContext | null => {
+  try {
+    if (!audioContext) audioContext = new AudioContext();
+    if (audioContext.state === 'suspended') void audioContext.resume();
+    return audioContext;
+  } catch {
+    return null;
   }
-  return count;
-};
-
-const calculateStars = (commandCount: number, optimal: number): number => {
-  if (commandCount <= optimal) return 3;
-  if (commandCount <= optimal * 1.5) return 2;
-  return 1;
 };
 
 const playTone = (freq: number, duration: number, type: OscillatorType = 'sine') => {
+  const ctx = getAudioContext();
+  if (!ctx) return;
   try {
-    const ctx = new AudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = type;
@@ -53,11 +107,19 @@ const playTone = (freq: number, duration: number, type: OscillatorType = 'sine')
   } catch { }
 };
 
+const cancelPendingSounds = () => {
+  while (pendingTones.length > 0) clearTimeout(pendingTones.pop());
+};
+
+const scheduleTone = (delay: number, freq: number, duration: number) => {
+  pendingTones.push(setTimeout(() => playTone(freq, duration), delay));
+};
+
 const playCollisionSound = () => playTone(150, 0.2, 'sawtooth');
 const playVictorySound = () => {
   playTone(523, 0.15);
-  setTimeout(() => playTone(659, 0.15), 150);
-  setTimeout(() => playTone(784, 0.3), 300);
+  scheduleTone(150, 659, 0.15);
+  scheduleTone(300, 784, 0.3);
 };
 const playStepSound = () => playTone(440, 0.05);
 
@@ -92,8 +154,29 @@ export default function App() {
   const [collidedCell, setCollidedCell] = useState<string | null>(null);
   const [isWalking, setIsWalking] = useState(false);
   const sequenceRef = useRef<HTMLDivElement>(null);
+  const victoryCardRef = useRef<HTMLDivElement>(null);
+
+  const [executedMoves, setExecutedMoves] = useState(0);
+  const [runResult, setRunResult] = useState<{ moves: number; points: number; stars: number } | null>(null);
+  const [celebration, setCelebration] = useState<'none' | 'confetti' | 'modal'>('none');
+  const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
+  const celebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentLevel = LEVELS.find(l => l.id === gameState.currentLevel) || LEVELS[0];
+
+  const clearCelebration = useCallback(() => {
+    if (celebrationTimer.current) {
+      clearTimeout(celebrationTimer.current);
+      celebrationTimer.current = null;
+    }
+    setCelebration('none');
+  }, []);
+
+
+  useEffect(() => () => {
+    if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
+    cancelPendingSounds();
+  }, []);
 
   useEffect(() => {
     setPlayer(currentLevel.start);
@@ -106,7 +189,10 @@ export default function App() {
     setVisitedCells(new Set());
     setCollidedCell(null);
     setIsWalking(false);
-  }, [gameState.currentLevel]);
+    setExecutedMoves(0);
+    setRunResult(null);
+    clearCelebration();
+  }, [gameState.currentLevel, clearCelebration]);
 
   useEffect(() => {
     if (executionState.activeTopLevelIndex >= 0 && sequenceRef.current) {
@@ -118,7 +204,9 @@ export default function App() {
   }, [executionState.activeTopLevelIndex]);
 
   const addCommand = (cmd: Command) => {
-    if (!isRunning && flattenCount(commands) < currentLevel.maxCommands) {
+    if (isRunning || celebration !== 'none') return;
+    const nextCost = blockCount([...commands, cmd]);
+    if (nextCost <= currentLevel.maxBlocks) {
       setCommands([...commands, cmd]);
     }
   };
@@ -148,17 +236,25 @@ export default function App() {
     setCommands(newCommands);
   };
 
-  const finishRepeat = () => {
-    const block: CommandBlock = { type: 'repeat', times: repeatCount, children: repeatInner };
+  const tryAddBlock = (block: CommandBlock): boolean => {
+    if (blockCount([...commands, block]) > currentLevel.maxBlocks) {
+      setMessage(`Ese bloque no cabe: el presupuesto del nivel es de ${currentLevel.maxBlocks} bloques.`);
+      return false;
+    }
     setCommands([...commands, block]);
+    return true;
+  };
+
+  const finishRepeat = () => {
+    const times = clampNumber(repeatCount, 2, 9);
+    if (!tryAddBlock({ type: 'repeat', times, children: repeatInner })) return;
     setRepeatInner([]);
     setIsBuildingRepeat(false);
     setRepeatCount(2);
   };
 
   const finishIf = () => {
-    const block: CommandBlock = { type: 'if_wall', children: ifInner };
-    setCommands([...commands, block]);
+    if (!tryAddBlock({ type: 'if_wall', children: ifInner })) return;
     setIfInner([]);
     setIsBuildingIf(false);
   };
@@ -171,6 +267,8 @@ export default function App() {
   };
 
   const resetLevel = () => {
+    cancelPendingSounds();
+    clearCelebration();
     setCommands([]);
     setPlayer(currentLevel.start);
     setMessage("Nivel reiniciado.");
@@ -181,13 +279,19 @@ export default function App() {
     setVisitedCells(new Set());
     setCollidedCell(null);
     setIsWalking(false);
+    setExecutedMoves(0);
+    setRunResult(null);
     cancelBlock();
   };
 
   const selectLevel = (levelId: number) => {
     if (gameState.unlockedLevels.includes(levelId)) {
-      setGameState(prev => ({ ...prev, currentLevel: levelId }));
       setShowLevelSelect(false);
+      setGameState(prev => {
+        const next = { ...prev, currentLevel: levelId };
+        saveGameState(next);
+        return next;
+      });
     }
   };
 
@@ -278,6 +382,8 @@ export default function App() {
     setShowVictory(false);
     setVisitedCells(new Set([`${player.position.x},${player.position.y}`]));
     setCollidedCell(null);
+    setExecutedMoves(0);
+    setRunResult(null);
 
     const expanded = flattenCommands(commands, player.position, player.direction, currentLevel.map, -1);
     let currentPlayerState = { ...player };
@@ -305,6 +411,7 @@ export default function App() {
       }));
 
       currentPlayerState = calculateNextState(currentPlayerState, step.cmd, currentLevel.map);
+      setExecutedMoves(i + 1);
 
       setVisitedCells(prev =>
         new Set([...prev, `${currentPlayerState.position.x},${currentPlayerState.position.y}`])
@@ -339,35 +446,106 @@ export default function App() {
     if (currentLevel.map[y]?.[x] === 2) {
       setShowVictory(true);
       playVictorySound();
-      const stars = calculateStars(flattenCount(commands), currentLevel.optimalCommands);
+
+      const moves = expanded.length;
+      const points = calculateScore(moves, currentLevel.optimalMoves);
+      const stars = calculateStars(moves, currentLevel.optimalMoves);
       const starText = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+      setRunResult({ moves, points, stars });
       setMessage(`¡Código compilado con éxito! ${starText}`);
 
       const nextLevelId = currentLevel.id + 1;
-      const newUnlocked = gameState.unlockedLevels.includes(nextLevelId)
-        ? gameState.unlockedLevels
-        : [...gameState.unlockedLevels, nextLevelId];
-      const newScores = { ...gameState.scores };
-      const prevScore = newScores[currentLevel.id] || 0;
-      newScores[currentLevel.id] = Math.max(prevScore, stars);
+      setGameState(prev => {
+        const unlockedLevels = prev.unlockedLevels.includes(nextLevelId)
+          ? prev.unlockedLevels
+          : [...prev.unlockedLevels, nextLevelId].filter(id => LEVELS.some(l => l.id === id));
+        const next = {
+          ...prev,
+          unlockedLevels,
+          scores: { ...prev.scores, [currentLevel.id]: Math.max(prev.scores[currentLevel.id] || 0, stars) },
+          points: { ...prev.points, [currentLevel.id]: Math.max(prev.points[currentLevel.id] || 0, points) },
+        };
+        saveGameState(next);
+        return next;
+      });
 
-      const newState = {
-        currentLevel: Math.min(nextLevelId, LEVELS.length),
-        unlockedLevels: newUnlocked,
-        scores: newScores
-      };
-      setGameState(newState);
-      saveGameState(newState);
+      setConfetti(buildConfetti());
+      setCelebration('confetti');
+      if (celebrationTimer.current) clearTimeout(celebrationTimer.current);
+      celebrationTimer.current = setTimeout(() => {
+        celebrationTimer.current = null;
+        setCelebration('modal');
+      }, CELEBRATION_MS);
     } else {
       setMessage("Error en la lógica (Bug). Intenta de nuevo. 🐛");
     }
 
     setIsRunning(false);
     setExecutionStatus('finished');
-  }, [commands, player, currentLevel, gameState, executionState.executionSpeed, flattenCommands]);
+  }, [commands, player, currentLevel, executionState.executionSpeed, flattenCommands]);
 
-  const commandCount = flattenCount(commands);
-  const remaining = currentLevel.maxCommands - commandCount;
+  const blockTotal = blockCount(commands);
+  const remaining = currentLevel.maxBlocks - blockTotal;
+  const busy = isRunning || celebration !== 'none';
+  const isLastLevel = currentLevel.id === LEVELS.length;
+  const nextLevelId = currentLevel.id + 1;
+  const gridRows = currentLevel.map.length;
+  const gridCols = currentLevel.map[0]?.length ?? 1;
+
+  const advanceLevel = useCallback(() => {
+    const nextId = currentLevel.id + 1;
+    if (nextId > LEVELS.length) return;
+    clearCelebration();
+    setGameState(prev => {
+      const next = { ...prev, currentLevel: nextId };
+      saveGameState(next);
+      return next;
+    });
+  }, [currentLevel.id, clearCelebration]);
+
+  const continueFromModal = useCallback(() => {
+    if (isLastLevel) {
+      clearCelebration();
+      setShowLevelSelect(true);
+      return;
+    }
+    advanceLevel();
+  }, [isLastLevel, clearCelebration, advanceLevel]);
+
+  useEffect(() => {
+    if (celebration !== 'modal') return;
+    const focusables = () => {
+      const card = victoryCardRef.current;
+      if (!card) return [] as HTMLElement[];
+      return Array.from(
+        card.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      );
+    };
+    const first = focusables()[0];
+    first?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        continueFromModal();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const firstItem = items[0];
+      const lastItem = items[items.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === firstItem || !victoryCardRef.current?.contains(active))) {
+        event.preventDefault();
+        lastItem.focus();
+      } else if (!event.shiftKey && active === lastItem) {
+        event.preventDefault();
+        firstItem.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [celebration, continueFromModal]);
 
   const executionProgress = executionState.isExecuting && executionState.expandedLength > 0
     ? ((executionState.activeCommandIndex + 1) / executionState.expandedLength) * 100
@@ -412,22 +590,42 @@ export default function App() {
       <div className="game-container">
         <h1>ISP21: Coding Game</h1>
         <h2>Seleccionar Nivel</h2>
+        <p className="level-select-hint">
+          Completaste {gameState.unlockedLevels.filter(id => id !== gameState.currentLevel).length} de {LEVELS.length} niveles.
+          Los niveles se desbloquean al completar el anterior.
+        </p>
         <div className="level-grid">
           {LEVELS.map(level => {
             const isUnlocked = gameState.unlockedLevels.includes(level.id);
             const isCurrent = level.id === gameState.currentLevel;
+            const stars = gameState.scores[level.id] || 0;
+            const points = gameState.points[level.id] || 0;
+            const state = isUnlocked ? (isCurrent ? 'nivel actual' : 'disponible') : 'bloqueado';
             return (
               <button
                 key={level.id}
                 className={`level-card ${isUnlocked ? 'unlocked' : 'locked'} ${isCurrent ? 'current' : ''}`}
                 onClick={() => selectLevel(level.id)}
                 disabled={!isUnlocked}
+                aria-label={`Nivel ${level.id}: ${level.name}. ${state}. ${stars} de 3 estrellas. ${points} puntos. Óptimo ${level.optimalMoves} movimientos.`}
               >
                 <span className="level-number">Nivel {level.id}</span>
                 <span className="level-name">{level.name}</span>
-                {renderStars(level.id)}
-                {!isUnlocked && <span className="lock-icon">🔒</span>}
-                {isCurrent && <span className="current-badge">▸</span>}
+                <span className="level-goal">Óptimo {level.optimalMoves} mov.</span>
+                {stars > 0 ? (
+                  <span className="stars small" aria-hidden="true">
+                    {'★'.repeat(stars)}{'☆'.repeat(3 - stars)}
+                  </span>
+                ) : (
+                  <span className="level-points">{isUnlocked ? 'Sin completar' : '—'}</span>
+                )}
+                {points > 0 && <span className="level-points">{points} pts</span>}
+                {!isUnlocked && (
+                  <span className="lock-state">
+                    <span aria-hidden="true">🔒</span> Bloqueado
+                  </span>
+                )}
+                {isCurrent && <span className="current-badge">▸ En juego</span>}
               </button>
             );
           })}
@@ -441,6 +639,66 @@ export default function App() {
 
   return (
     <div className="game-container">
+      {celebration === 'confetti' && (
+        <div className="confetti-layer" aria-hidden="true">
+          {confetti.map(piece => (
+            <span
+              key={piece.id}
+              className={`confetti-piece ${piece.round ? 'round' : ''}`}
+              style={{
+                left: `${piece.left}%`,
+                width: piece.size,
+                height: Math.round(piece.size * 1.7),
+                backgroundColor: piece.color,
+                animationDelay: `${piece.delay}s`,
+                animationDuration: `${piece.duration}s`,
+                '--spin': `${piece.spin}deg`,
+              } as CSSProperties}
+            />
+          ))}
+        </div>
+      )}
+
+      {celebration === 'modal' && runResult && (
+        <div className="modal-overlay">
+          <div
+            className="modal-card victory-card"
+            ref={victoryCardRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="victory-title"
+            aria-describedby="victory-summary"
+          >
+            <div className="victory-badge" aria-hidden="true">🎉</div>
+            <h2 id="victory-title">¡Excelente trabajo!</h2>
+            <p className="victory-level">Nivel {currentLevel.id} completado</p>
+            <p className="victory-name">{currentLevel.name}</p>
+            <span className="stars large" aria-label={`${runResult.stars} de 3 estrellas`}>
+              {'★'.repeat(runResult.stars)}{'☆'.repeat(3 - runResult.stars)}
+            </span>
+            <ul className="victory-stats" id="victory-summary">
+              <li className="highlight"><span>Puntuación</span><strong>{runResult.points}<small>/100</small></strong></li>
+              <li><span>Movimientos</span><strong>{runResult.moves}</strong></li>
+              <li><span>Óptimo</span><strong>{currentLevel.optimalMoves}</strong></li>
+              <li><span>Bloques</span><strong>{blockTotal}<small>/{currentLevel.maxBlocks}</small></strong></li>
+              <li><span>Mejor marca</span><strong>{gameState.points[currentLevel.id] || 0}<small>pts</small></strong></li>
+            </ul>
+            <div className="modal-actions">
+              {isLastLevel && <p className="victory-final">¡Completaste los {LEVELS.length} niveles! 🏆</p>}
+              <button className="btn-primary" onClick={continueFromModal} autoFocus>
+                {isLastLevel ? 'Volver al selector de niveles' : `Continuar al Nivel ${nextLevelId}`}
+              </button>
+              <div className="modal-actions-row">
+                <button className="btn-secondary" onClick={resetLevel}>Reintentar</button>
+                <button className="btn-secondary" onClick={() => { clearCelebration(); setShowLevelSelect(true); }}>
+                  Niveles
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showTutorial && (
         <div className="tutorial-overlay" onClick={dismissTutorial}>
           <div className="tutorial-card" onClick={e => e.stopPropagation()}>
@@ -462,12 +720,20 @@ export default function App() {
       <header className="game-header">
         <h1>ISP21: {currentLevel.name}</h1>
         <p className="level-info">
-          Nivel {currentLevel.id} de {LEVELS.length} — {currentLevel.description}
+          Nivel {currentLevel.id} de {LEVELS.length}
         </p>
+        <div className="stats-row">
+          <div
+            className={`stat-chip ${remaining <= 0 ? 'full' : remaining <= 3 ? 'warning' : ''}`}
+            title="Bloques escritos dentro del presupuesto del nivel"
+          >
+            <span className="stat-label">Bloques</span>
+            <span className="stat-value">{blockTotal}<small>/{currentLevel.maxBlocks}</small></span>
+            {remaining <= 0 && <span className="sr-only">Presupuesto completo</span>}
+          </div>
+        </div>
         <div className="header-bottom">
-          <p className={`command-counter ${remaining <= 3 ? 'warning' : ''}`}>
-            Comandos: {commandCount}/{currentLevel.maxCommands}
-          </p>
+          <p className="objective">🎯 {currentLevel.description}</p>
           {renderStars(currentLevel.id, 'large')}
         </div>
       </header>
@@ -479,29 +745,36 @@ export default function App() {
         />
       </div>
 
-      <p className={`message ${showVictory ? 'victory' : ''} ${showCollision ? 'collision' : ''}`}>
+      <p className={`message ${showVictory ? 'victory' : ''} ${showCollision ? 'collision' : ''}`} aria-live="polite">
         {message}
       </p>
 
       <div className="game-layout">
-        <div className={`grid ${showCollision ? 'shake' : ''}`}>
-          {currentLevel.map.map((row, y) => (
-            <div key={y} className="row">
-              {row.map((cell, x) => {
-                const isPlayerHere = player.position.x === x && player.position.y === y;
-                return (
-                  <div key={`${x}-${y}`} className={getCellClasses(x, y, cell)}>
-                    {isPlayerHere && (
-                      <span className={`player dir-${player.direction} ${showVictory ? 'player-victory' : ''} ${showCollision ? 'colliding' : ''} ${isWalking ? 'walking' : ''}`}>
-                        🤖
-                      </span>
-                    )}
-                    {cell === 2 && !isPlayerHere && <span>💻</span>}
-                  </div>
-                );
-              })}
+        <div className="board-area">
+          <div
+            className={`board-frame ${showCollision ? 'shake' : ''}`}
+            style={{ '--cols': gridCols, '--rows': gridRows } as CSSProperties}
+          >
+            <div className="grid">
+              {currentLevel.map.map((row, y) => (
+                <div key={y} className="row">
+                  {row.map((cell, x) => {
+                    const isPlayerHere = player.position.x === x && player.position.y === y;
+                    return (
+                      <div key={`${x}-${y}`} className={getCellClasses(x, y, cell)}>
+                        {isPlayerHere && (
+                          <span className={`player dir-${player.direction} ${showVictory ? 'player-victory' : ''} ${showCollision ? 'colliding' : ''} ${isWalking ? 'walking' : ''}`}>
+                            🤖
+                          </span>
+                        )}
+                        {cell === 2 && !isPlayerHere && <span>💻</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
 
         <div className="control-panel">
@@ -510,25 +783,25 @@ export default function App() {
           {!isBuilding ? (
             <>
               <div className="palette">
-                <button onClick={() => addSimpleCommand('AVANZAR')} disabled={isRunning || remaining <= 0}
+                <button onClick={() => addSimpleCommand('AVANZAR')} disabled={busy || remaining <= 0}
                   title="Mover al estudiante un paso adelante">
                   Avanzar()
                 </button>
-                <button onClick={() => addSimpleCommand('GIRAR_IZQ')} disabled={isRunning || remaining <= 0}
+                <button onClick={() => addSimpleCommand('GIRAR_IZQ')} disabled={busy || remaining <= 0}
                   title="Girar 90° a la izquierda">
                   GirarIzq()
                 </button>
-                <button onClick={() => addSimpleCommand('GIRAR_DER')} disabled={isRunning || remaining <= 0}
+                <button onClick={() => addSimpleCommand('GIRAR_DER')} disabled={busy || remaining <= 0}
                   title="Girar 90° a la derecha">
                   GirarDer()
                 </button>
               </div>
               <div className="palette">
-                <button onClick={() => setIsBuildingRepeat(true)} disabled={isRunning || remaining <= 0}
+                <button onClick={() => setIsBuildingRepeat(true)} disabled={busy || remaining <= 0}
                   className="btn-repeat" title="Repetir un bloque de comandos N veces">
                   🔄 Repetir(n)
                 </button>
-                <button onClick={() => setIsBuildingIf(true)} disabled={isRunning || remaining <= 0}
+                <button onClick={() => setIsBuildingIf(true)} disabled={busy || remaining <= 0}
                   className="btn-if" title="Ejecutar comandos solo si hay pared al frente">
                   ❓ SiPared()
                 </button>
@@ -546,7 +819,10 @@ export default function App() {
                         min={2}
                         max={9}
                         value={repeatCount}
-                        onChange={e => setRepeatCount(Number(e.target.value))}
+                        onChange={e => {
+                          if (e.target.value === '') return;
+                          setRepeatCount(clampNumber(Number(e.target.value), 2, 9));
+                        }}
                         className="repeat-input"
                       />
                       veces
@@ -630,9 +906,9 @@ export default function App() {
                   )}
                 </span>
                 <div className="cmd-actions">
-                  <button onClick={() => moveCommand(index, -1)} disabled={isRunning || index === 0} title="Mover arriba">↑</button>
-                  <button onClick={() => moveCommand(index, 1)} disabled={isRunning || index === commands.length - 1} title="Mover abajo">↓</button>
-                  <button onClick={() => removeCommand(index)} disabled={isRunning} title="Eliminar" className="btn-remove">✕</button>
+                  <button onClick={() => moveCommand(index, -1)} disabled={busy || index === 0} title="Mover arriba">↑</button>
+                  <button onClick={() => moveCommand(index, 1)} disabled={busy || index === commands.length - 1} title="Mover abajo">↓</button>
+                  <button onClick={() => removeCommand(index)} disabled={busy} title="Eliminar" className="btn-remove">✕</button>
                 </div>
               </div>
             ))}
@@ -652,6 +928,21 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      <footer className="metrics-bar">
+        <div className={`metric ${isRunning ? 'live' : ''}`}>
+          <span className="metric-label">Movimientos</span>
+          <span className="metric-value">{executedMoves}</span>
+        </div>
+        <div className="metric">
+          <span className="metric-label">Óptimo</span>
+          <span className="metric-value">{currentLevel.optimalMoves}</span>
+        </div>
+        <div className="metric accent">
+          <span className="metric-label">Puntuación</span>
+          <span className="metric-value">{runResult ? `${runResult.points}/100` : '—/100'}</span>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -2,30 +2,74 @@
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #000000;
-  background-color: #e8f4f8;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  --bg-page: #eaf2f8;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #eef2f7;
+  --text: #16202e;
+  --text-muted: #5b6472;
+  --border: #dde4ec;
+  --primary: #0b6bdb;
+  --primary-hover: #0a58b0;
+  --success: #1f9d4d;
+  --success-hover: #19813f;
+  --danger: #d33a45;
+  --danger-hover: #b12d37;
+  --accent: #136a2b;
+  --focus: #1d4ed8;
+  --cell-floor: #f0f3f6;
+  --cell-wall: #26313f;
+  --cell-goal: #d6f0dd;
+  --board-frame: #1f2937;
+  --star: #f0b429;
+  --overlay: rgba(9, 16, 27, 0.62);
+  --shadow-soft: 0 2px 16px rgba(15, 23, 42, 0.08);
+  --shadow-strong: 0 10px 30px rgba(15, 23, 42, 0.18);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background-color: var(--bg-page);
+  color: var(--text);
 }
 
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
+  margin: 0;
+  padding: 0;
   text-align: center;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    color: #f3f4f6;
-    background-color: #4c8fb6;
+    --bg-page: #0b1220;
+    --surface: #111a29;
+    --surface-2: #1a2434;
+    --surface-3: #243044;
+    --text: #e6ebf2;
+    --text-muted: #a4b0c2;
+    --border: #33415580;
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --success: #22c55e;
+    --success-hover: #16a34a;
+    --danger: #ef4444;
+    --danger-hover: #dc2626;
+    --accent: #86efac;
+    --focus: #93c5fd;
+    --cell-floor: #1e293b;
+    --cell-wall: #060b14;
+    --cell-goal: #14532d;
+    --board-frame: #020617;
+    --star: #fbbf24;
+    --overlay: rgba(2, 6, 16, 0.72);
+    --shadow-soft: 0 2px 16px rgba(0, 0, 0, 0.45);
+    --shadow-strong: 0 10px 30px rgba(0, 0, 0, 0.55);
   }
 }
