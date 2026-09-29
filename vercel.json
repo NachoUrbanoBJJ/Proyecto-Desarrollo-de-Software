@@ -1,5 +1,6 @@
 {
-  "installCommand": "npm ci --workspace=application",
-  "buildCommand": "npm run build --workspace=application",
-  "outputDirectory": "application/dist"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd isp21-coding-game && npm ci",
+  "buildCommand": "cd isp21-coding-game && npm run build --workspace=application",
+  "outputDirectory": "isp21-coding-game/application/dist"
 }
