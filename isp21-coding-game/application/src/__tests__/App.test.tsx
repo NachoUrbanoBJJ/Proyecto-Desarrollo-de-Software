@@ -83,9 +83,10 @@ const playerPosition = () => {
 };
 
 describe('App', () => {
-  it('renderiza el título del nivel', () => {
-    render(<App />);
-    expect(screen.getByText(/ISP21: Primer Commit/)).toBeTruthy();
+  it('renderiza el título del juego y el nombre del nivel', () => {
+    const { container } = render(<App />);
+    expect(container.querySelector('h1')?.textContent).toBe('ISP21: CodeQuest');
+    expect(container.querySelector('.level-title')?.textContent).toBe('Primer Commit');
   });
 
   it('renderiza los botones de comandos', () => {
@@ -335,7 +336,7 @@ describe('App', () => {
     await runToEnd(8000);
 
     fireEvent.click(screen.getByText('Continuar al Nivel 2'));
-    expect(screen.getByText(/ISP21: Merge Conflict/)).toBeTruthy();
+    expect(screen.getByText(/Merge Conflict/)).toBeTruthy();
     expect(screen.getByText('Nivel 2 de 6')).toBeTruthy();
     expect(statValue('Bloques')).toBe('0/10');
     expect(metricValue('Óptimo')).toBe('6');
@@ -354,7 +355,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByText('Reintentar'));
     expect(screen.queryByText('¡Excelente trabajo!')).toBeNull();
-    expect(screen.getByText(/ISP21: Primer Commit/)).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Primer Commit');
     expect(metricValue('Movimientos')).toBe('0');
   });
 
@@ -431,7 +432,8 @@ describe('App', () => {
     render(<App />);
     dismissTutorial();
 
-    expect(screen.getByText(/ISP21: Refactor/)).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('ISP21: CodeQuest');
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Refactor');
     expect(screen.getByText('Nivel 3 de 6')).toBeTruthy();
     expect(metricValue('Óptimo')).toBe('14');
     expect(statValue('Bloques')).toBe('0/20');

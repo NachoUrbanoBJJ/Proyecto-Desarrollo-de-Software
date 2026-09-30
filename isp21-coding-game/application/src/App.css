@@ -16,13 +16,21 @@
 }
 
 .game-header h1 {
-  margin: 0 0 4px;
-  font-size: clamp(1.4rem, 1rem + 1.6vw, 2.1rem);
-  color: var(--accent);
-  letter-spacing: -0.01em;
-}
+    margin: 0 0 2px;
+    font-size: clamp(1.4rem, 1rem + 1.6vw, 2.1rem);
+    color: var(--accent);
+    letter-spacing: -0.01em;
+  }
 
-.level-info {
+  .game-header .level-title {
+    margin: 0 0 4px;
+    font-size: clamp(1.05rem, 0.95rem + 0.9vw, 1.5rem);
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+
+  .level-info {
   color: var(--text-muted);
   font-size: 0.95rem;
   font-weight: 700;

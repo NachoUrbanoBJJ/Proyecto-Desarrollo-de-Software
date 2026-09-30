@@ -591,7 +591,7 @@ export default function App() {
   if (showLevelSelect) {
     return (
       <div className="game-container">
-        <h1>ISP21: Coding Game</h1>
+        <h1>ISP21: CodeQuest</h1>
         <h2>Seleccionar Nivel</h2>
         <p className="level-select-hint">
           Completaste {gameState.unlockedLevels.filter(id => id !== gameState.currentLevel).length} de {LEVELS.length} niveles.
@@ -721,7 +721,8 @@ export default function App() {
       )}
 
       <header className="game-header">
-        <h1>ISP21: {currentLevel.name}</h1>
+        <h1>ISP21: CodeQuest</h1>
+        <h2 className="level-title">{currentLevel.name}</h2>
         <p className="level-info">
           Nivel {currentLevel.id} de {LEVELS.length}
         </p>
