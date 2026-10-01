@@ -365,7 +365,7 @@ export default function App() {
         saveGameState(next);
         return next;
       });
-      resetRunState("¡Ayuda al estudiante a llegar a la PC!", target.start);
+      resetRunState("¡Ayuda al estudiante a llegar al mate!", target.start);
     }
   };
 
@@ -503,7 +503,7 @@ export default function App() {
       saveGameState(next);
       return next;
     });
-    resetRunState("¡Ayuda al estudiante a llegar a la PC!", target.start);
+    resetRunState("¡Ayuda al estudiante a llegar al mate!", target.start);
   }, [currentLevel.id, resetRunState]);
 
   const continueFromModal = useCallback(() => {
@@ -711,9 +711,9 @@ export default function App() {
               <li><strong>GirarIzq()</strong> — Gira 90° a la izquierda</li>
               <li><strong>GirarDer()</strong> — Gira 90° a la derecha</li>
               <li><strong>🔄 Repetir(n)</strong> — Repite un bloque N veces</li>
-              <li><strong>❓ SiPared()</strong> — Ejecuta solo si hay pared al frente</li>
+              <li><strong>🧱 SiPared()</strong> — Ejecuta solo si hay pared al frente</li>
             </ul>
-            <p>Construye una secuencia y presiona <strong>Ejecutar</strong> para llegar a la PC 💻</p>
+            <p>Construye una secuencia y presiona <strong>Ejecutar</strong> para llegar al 🧉</p>
             <p className="stars-hint">★★★ = solución óptima &nbsp;|&nbsp; ★★ = buena &nbsp;|&nbsp; ★ = completa</p>
             <button onClick={dismissTutorial}>¡Entendido!</button>
           </div>
@@ -768,10 +768,10 @@ export default function App() {
                       <div key={`${x}-${y}`} className={getCellClasses(x, y, cell)}>
                         {isPlayerHere && (
                           <span className={`player dir-${player.direction} ${showVictory ? 'player-victory' : ''} ${showCollision ? 'colliding' : ''} ${isWalking ? 'walking' : ''}`}>
-                            🤖
+                            🐵
                           </span>
                         )}
-                        {cell === 2 && !isPlayerHere && <span>💻</span>}
+                        {cell === 2 && !isPlayerHere && <span>🧉</span>}
                       </div>
                     );
                   })}
