@@ -130,7 +130,7 @@ export const calculateScore = (moves: number, optimalMoves: number): number => {
 
 export const calculateStars = (moves: number, optimalMoves: number): number => {
     if (optimalMoves <= 0 || moves <= optimalMoves) return MAX_STARS;
-    if (moves <= optimalMoves * 1.5) return 2;
+    if (moves <= optimalMoves + 2) return 2;
     return 1;
 };
 

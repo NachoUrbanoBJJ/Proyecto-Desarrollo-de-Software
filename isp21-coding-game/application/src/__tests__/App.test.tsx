@@ -173,9 +173,28 @@ describe('App', () => {
     fireEvent.click(screen.getByText(/Limpiar/));
 
     expect(statValue('Bloques')).toBe('0/6');
-    expect(metricValue('Movimientos')).toBe('0');
+    expect(metricValue('Movimientos')).toBe('1');
     expect(playerPosition()).toEqual({ x: 2, y: 1 });
     expect(document.querySelector('.player')?.className).toContain('dir-RIGHT');
+  });
+
+  it('acumula movimientos entre ejecuciones tras limpiar la secuencia', async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    dismissTutorial();
+
+    addSequence(av(1));
+    fireEvent.click(screen.getByText('▶ Ejecutar'));
+    await runToEnd(6000);
+    expect(metricValue('Movimientos')).toBe('1');
+
+    fireEvent.click(screen.getByText(/Limpiar/));
+    expect(metricValue('Movimientos')).toBe('1');
+
+    addSequence(av(1));
+    fireEvent.click(screen.getByText('▶ Ejecutar'));
+    await runToEnd(6000);
+    expect(metricValue('Movimientos')).toBe('2');
   });
 
   it('limpia la secuencia desde la posicion inicial sin ejecutar', () => {
@@ -240,7 +259,7 @@ describe('App', () => {
     fireEvent.click(screen.getByText(/📋 Niveles/));
     expect(screen.getByText('Seleccionar Nivel')).toBeTruthy();
     for (const id of [1, 2, 3, 4, 5, 6]) {
-      expect(screen.getByText(`Nivel ${id}`)).toBeTruthy();
+      expect(screen.getByText(`Nivel ${id}`, { selector: '.level-number' })).toBeTruthy();
     }
   });
 
@@ -250,7 +269,7 @@ describe('App', () => {
     fireEvent.click(screen.getByText(/📋 Niveles/));
     const locked = screen.getAllByText(/Bloqueado/);
     expect(locked.length).toBe(5);
-    const card = screen.getByText('Nivel 6').closest('button') as HTMLButtonElement;
+    const card = screen.getByText('Nivel 6', { selector: '.level-number' }).closest('button') as HTMLButtonElement;
     expect(card.disabled).toBe(true);
     expect(card.getAttribute('aria-label')).toContain('bloqueado');
   });
@@ -461,7 +480,7 @@ describe('App', () => {
     await runToEnd(8000);
 
     fireEvent.click(screen.getByText('Niveles'));
-    fireEvent.click(screen.getByText('Nivel 1').closest('button') as HTMLButtonElement);
+    fireEvent.click(screen.getByText('Nivel 1', { selector: '.level-number' }).closest('button') as HTMLButtonElement);
 
     expect(screen.getByText('Nivel 1 de 6')).toBeTruthy();
     expect(statValue('Bloques')).toBe('0/6');

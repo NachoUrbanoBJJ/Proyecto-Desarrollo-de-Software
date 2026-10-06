@@ -6,6 +6,8 @@ import { LEVELS } from './levels';
 import './App.css';
 
 const STORAGE_KEY = 'isp21-coding-game-state';
+const NICKNAME_KEY = 'isp21-coding-game-nickname';
+const NICKNAME_MAX = 12;
 const CELEBRATION_MS = 2500;
 const CONFETTI_COUNT = 64;
 const CONFETTI_COLORS = ['#f9c74f', '#f3722c', '#43aa8b', '#577590', '#b5179e', '#4cc9f0', '#90be6d'];
@@ -204,6 +206,14 @@ function flattenCommands(
   return result;
 }
 
+const findIfWallSuggestion = (cmds: Command[], upToIndex: number): number => {
+  for (let i = Math.min(upToIndex, cmds.length - 1); i >= 0; i--) {
+    const item = cmds[i];
+    if (typeof item === 'object' && item !== null && item.type === 'if_wall') return i;
+  }
+  return -1;
+};
+
 export default function App() {
   const [gameState, setGameState] = useState<GameState>(loadGameState);
   const currentLevel = LEVELS.find(l => l.id === gameState.currentLevel) || LEVELS[0];
@@ -239,6 +249,12 @@ export default function App() {
   const victoryCardRef = useRef<HTMLDivElement>(null);
 
   const [executedMoves, setExecutedMoves] = useState(0);
+  const movesRef = useRef(0);
+  const [suggestedBlockIndex, setSuggestedBlockIndex] = useState(-1);
+  const [nickname, setNickname] = useState<string>(() => {
+    try { return localStorage.getItem(NICKNAME_KEY) ?? ''; } catch { return ''; }
+  });
+  const [nicknameDraft, setNicknameDraft] = useState('');
   const [runResult, setRunResult] = useState<{ moves: number; points: number; stars: number } | null>(null);
   const [celebration, setCelebration] = useState<'none' | 'confetti' | 'modal'>('none');
   const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
@@ -266,12 +282,22 @@ export default function App() {
     }
   }, [executionState.activeTopLevelIndex]);
 
+  useEffect(() => {
+    if (suggestedBlockIndex >= 0 && sequenceRef.current) {
+      const suggestedEl = sequenceRef.current.children[suggestedBlockIndex] as HTMLElement | undefined;
+      if (suggestedEl && typeof suggestedEl.scrollIntoView === 'function') {
+        suggestedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [suggestedBlockIndex]);
+
   const addCommand = (cmd: Command) => {
     if (isRunning || celebration !== 'none') return;
     const nextCost = blockCount([...commands, cmd]);
     if (nextCost <= currentLevel.maxBlocks) {
       setCommands([...commands, cmd]);
     }
+    setSuggestedBlockIndex(-1);
   };
 
   const addSimpleCommand = (cmd: SimpleCommand) => {
@@ -287,6 +313,7 @@ export default function App() {
   const removeCommand = (index: number) => {
     if (!isRunning) {
       setCommands(commands.filter((_, i) => i !== index));
+      setSuggestedBlockIndex(-1);
     }
   };
 
@@ -297,6 +324,7 @@ export default function App() {
     const newCommands = [...commands];
     [newCommands[index], newCommands[newIndex]] = [newCommands[newIndex], newCommands[index]];
     setCommands(newCommands);
+    setSuggestedBlockIndex(-1);
   };
 
   const tryAddBlock = (block: CommandBlock): boolean => {
@@ -305,6 +333,7 @@ export default function App() {
       return false;
     }
     setCommands([...commands, block]);
+    setSuggestedBlockIndex(-1);
     return true;
   };
 
@@ -329,7 +358,7 @@ export default function App() {
     setIsBuildingIf(false);
   };
 
-  const resetRunState = useCallback((text: string, start: PlayerState) => {
+  const resetRunState = useCallback((text: string, start: PlayerState, resetMoves = true) => {
     cancelPendingSounds();
     clearCelebration();
     setCommands([]);
@@ -342,7 +371,11 @@ export default function App() {
     setVisitedCells(new Set());
     setCollidedCell(null);
     setIsWalking(false);
-    setExecutedMoves(0);
+    setSuggestedBlockIndex(-1);
+    if (resetMoves) {
+      movesRef.current = 0;
+      setExecutedMoves(0);
+    }
     setRunResult(null);
   }, [clearCelebration]);
 
@@ -352,7 +385,7 @@ export default function App() {
   };
 
   const clearSequence = () => {
-    resetRunState("Secuencia vaciada. El personaje se queda donde está.", player);
+    resetRunState("Secuencia vaciada. El personaje se queda donde está.", player, false);
     cancelBlock();
   };
 
@@ -384,10 +417,11 @@ export default function App() {
     setShowVictory(false);
     setVisitedCells(new Set([`${player.position.x},${player.position.y}`]));
     setCollidedCell(null);
-    setExecutedMoves(0);
+    setSuggestedBlockIndex(-1);
     setRunResult(null);
 
     const expanded = flattenCommands(commands, player.position, player.direction, currentLevel.map, -1);
+    const baseMoves = movesRef.current;
     let currentPlayerState = { ...player };
     const speed = executionState.executionSpeed;
 
@@ -398,6 +432,8 @@ export default function App() {
       isExecuting: true,
       expandedLength: expanded.length,
     }));
+
+    let collided = false;
 
     for (let i = 0; i < expanded.length; i++) {
       const step = expanded[i];
@@ -413,22 +449,32 @@ export default function App() {
       }));
 
       currentPlayerState = calculateNextState(currentPlayerState, step.cmd, currentLevel.map);
-      setExecutedMoves(i + 1);
+      movesRef.current = baseMoves + i + 1;
+      setExecutedMoves(movesRef.current);
 
       setVisitedCells(prev =>
         new Set([...prev, `${currentPlayerState.position.x},${currentPlayerState.position.y}`])
       );
 
       if (step.collision) {
-        setShowCollision(true);
+        collided = true;
         setCollidedCell(`${currentPlayerState.position.x},${currentPlayerState.position.y}`);
         setIsWalking(false);
         playCollisionSound();
-      } else {
-        playStepSound();
-        setIsWalking(true);
-        setTimeout(() => setIsWalking(false), 150);
+
+        const suggestion = findIfWallSuggestion(commands, step.commandIndex);
+        if (suggestion >= 0) {
+          setSuggestedBlockIndex(suggestion);
+          setMessage("Cuidado, estás chocando 🧱 — te marcamos el bloque SiPared() que podés usar para evitarlo.");
+        } else {
+          setMessage("Cuidado, estás chocando 🧱 — probá girar antes del choque o usar SiPared().");
+        }
+        break;
       }
+
+      playStepSound();
+      setIsWalking(true);
+      setTimeout(() => setIsWalking(false), 150);
 
       setPlayer({ ...currentPlayerState });
       await new Promise(resolve => setTimeout(resolve, speed));
@@ -440,16 +486,23 @@ export default function App() {
       activeTopLevelIndex: -1,
       isExecuting: false,
     }));
+    setExecutionStatus('finished');
+
+    if (collided) {
+      setShowCollision(true);
+      setIsRunning(false);
+      return;
+    }
+
     setShowCollision(false);
     setCollidedCell(null);
-    setExecutionStatus('finished');
 
     const { x, y } = currentPlayerState.position;
     if (currentLevel.map[y]?.[x] === 2) {
       setShowVictory(true);
       playVictorySound();
 
-      const moves = expanded.length;
+      const moves = movesRef.current;
       const points = calculateScore(moves, currentLevel.optimalMoves);
       const stars = calculateStars(moves, currentLevel.optimalMoves);
       const starText = '★'.repeat(stars) + '☆'.repeat(3 - stars);
@@ -483,7 +536,6 @@ export default function App() {
     }
 
     setIsRunning(false);
-    setExecutionStatus('finished');
   }, [commands, player, currentLevel, executionState.executionSpeed]);
 
   const blockTotal = blockCount(commands);
@@ -575,6 +627,9 @@ export default function App() {
     } else if (executionState.activeTopLevelIndex > index) {
       classes.push('executed');
     }
+    if (suggestedBlockIndex === index) {
+      classes.push('suggested');
+    }
     return classes.join(' ');
   };
 
@@ -587,6 +642,61 @@ export default function App() {
       </span>
     );
   };
+
+  const totalStars = LEVELS.reduce((acc, level) => acc + (gameState.scores[level.id] || 0), 0);
+  const totalPoints = LEVELS.reduce((acc, level) => acc + (gameState.points[level.id] || 0), 0);
+
+  const handleNicknameSave = () => {
+    const clean = nicknameDraft.trim().replace(/\s+/g, ' ').slice(0, NICKNAME_MAX);
+    if (!clean) return;
+    setNickname(clean);
+    setNicknameDraft('');
+    try { localStorage.setItem(NICKNAME_KEY, clean); } catch { return; }
+  };
+
+  const renderScoreBoard = (compact = false) => (
+    <div className={`score-board ${compact ? 'compact' : ''}`}>
+      <h3 className="score-board-title">🏆 Score</h3>
+      {!nickname ? (
+        <div className="score-nickname">
+          <label htmlFor="nickname-input">Tu apodo:</label>
+          <input
+            id="nickname-input"
+            type="text"
+            maxLength={NICKNAME_MAX}
+            value={nicknameDraft}
+            onChange={e => setNicknameDraft(e.target.value)}
+            placeholder="Apodo corto"
+            className="nickname-input"
+          />
+          <button onClick={handleNicknameSave} disabled={!nicknameDraft.trim()} className="btn-nickname">
+            Guardar
+          </button>
+        </div>
+      ) : (
+        <p className="score-player">Jugador: <strong>{nickname}</strong></p>
+      )}
+      <ul className="score-rows">
+        {LEVELS.map(level => {
+          const stars = gameState.scores[level.id] || 0;
+          const points = gameState.points[level.id] || 0;
+          return (
+            <li key={level.id}>
+              <span className="score-level">Nivel {level.id}</span>
+              <span className="score-stars">
+                {stars > 0 ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : '—'}
+              </span>
+              <span className="score-points">{points > 0 ? `${points} pts` : '—'}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="score-total">
+        Total: <strong>{totalStars}★ / {LEVELS.length * 3}</strong>
+        <span className="score-total-points">{totalPoints} pts</span>
+      </p>
+    </div>
+  );
 
   if (showLevelSelect) {
     return (
@@ -633,6 +743,7 @@ export default function App() {
             );
           })}
         </div>
+        {renderScoreBoard()}
         <button className="btn-back" onClick={() => setShowLevelSelect(false)}>
           ← Volver
         </button>
@@ -688,6 +799,7 @@ export default function App() {
             </ul>
             <div className="modal-actions">
               {isLastLevel && <p className="victory-final">¡Completaste los {LEVELS.length} niveles! 🏆</p>}
+              {isLastLevel && renderScoreBoard(true)}
               <button className="btn-primary" onClick={continueFromModal} autoFocus>
                 {isLastLevel ? 'Volver al selector de niveles' : `Continuar al Nivel ${nextLevelId}`}
               </button>
@@ -713,8 +825,8 @@ export default function App() {
               <li><strong>🔄 Repetir(n)</strong> — Repite un bloque N veces</li>
               <li><strong>🧱 SiPared()</strong> — Ejecuta solo si hay pared al frente</li>
             </ul>
-            <p>Construye una secuencia y presiona <strong>Ejecutar</strong> para llegar al 🧉</p>
-            <p className="stars-hint">★★★ = solución óptima &nbsp;|&nbsp; ★★ = buena &nbsp;|&nbsp; ★ = completa</p>
+<p>Construye una secuencia y presiona <strong>Ejecutar</strong> para llegar al 🧉</p>
+            <p className="stars-hint">★★★ = óptimo &nbsp;|&nbsp; ★★ = hasta +2 movimientos &nbsp;|&nbsp; ★ = +3 o más</p>
             <button onClick={dismissTutorial}>¡Entendido!</button>
           </div>
         </div>

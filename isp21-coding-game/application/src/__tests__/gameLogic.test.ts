@@ -264,11 +264,13 @@ describe('calculateStars', () => {
     expect(calculateStars(7, 10)).toBe(3);
   });
 
-  it('2 estrellas hasta 1.5x el óptimo', () => {
-    expect(calculateStars(15, 10)).toBe(2);
+  it('2 estrellas hasta el óptimo + 2', () => {
+    expect(calculateStars(12, 10)).toBe(2);
+    expect(calculateStars(11, 10)).toBe(2);
   });
 
-  it('1 estrella por encima de 1.5x el óptimo', () => {
+  it('1 estrella desde el óptimo + 3', () => {
+    expect(calculateStars(13, 10)).toBe(1);
     expect(calculateStars(16, 10)).toBe(1);
   });
 });
@@ -528,11 +530,13 @@ describe('calculateStars', () => {
     expect(calculateStars(7, 10)).toBe(3);
   });
 
-  it('2 estrellas hasta 1.5x el óptimo', () => {
-    expect(calculateStars(15, 10)).toBe(2);
+  it('2 estrellas hasta el óptimo + 2', () => {
+    expect(calculateStars(12, 10)).toBe(2);
+    expect(calculateStars(11, 10)).toBe(2);
   });
 
-  it('1 estrella por encima de 1.5x el óptimo', () => {
+  it('1 estrella desde el óptimo + 3', () => {
+    expect(calculateStars(13, 10)).toBe(1);
     expect(calculateStars(16, 10)).toBe(1);
   });
 });
