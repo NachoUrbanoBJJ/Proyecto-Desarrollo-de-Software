@@ -17,45 +17,13 @@ const clampNumber = (value: number, min: number, max: number): number => {
   return Math.max(min, Math.min(max, Math.round(value)));
 };
 
-const sanitizeRecord = (raw: unknown, maxValue: number): Record<number, number> => {
-  const result: Record<number, number> = {};
-  if (!raw || typeof raw !== 'object') return result;
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const num = Number(key);
-    const score = Number(value);
-    if (Number.isInteger(num) && Number.isFinite(score)) {
-      result[num] = Math.max(0, Math.min(maxValue, score));
-    }
-  }
-  return result;
-};
-
 const loadGameState = (): GameState => {
-  const fallback: GameState = { currentLevel: 1, unlockedLevels: [1], scores: {}, points: {} };
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return fallback;
-    const parsed = JSON.parse(saved) as Partial<GameState>;
-    const validIds = LEVELS.map(level => level.id);
-    const currentLevel = validIds.includes(parsed.currentLevel as number)
-      ? (parsed.currentLevel as number)
-      : 1;
-    const unlocked = Array.isArray(parsed.unlockedLevels)
-      ? parsed.unlockedLevels.filter(id => validIds.includes(id))
-      : [1];
-    return {
-      currentLevel,
-      unlockedLevels: Array.from(new Set([...unlocked, currentLevel])),
-      scores: sanitizeRecord(parsed.scores, 3),
-      points: sanitizeRecord(parsed.points, 100),
-    };
-  } catch {
-    return fallback;
-  }
+  try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* empty */ }
+  return { currentLevel: 1, unlockedLevels: [1], scores: {}, points: {} };
 };
 
 const saveGameState = (state: GameState) => {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { return; }
+  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { return; }
 };
 
 interface ConfettiPiece {
@@ -701,7 +669,10 @@ export default function App() {
   if (showLevelSelect) {
     return (
       <div className="game-container">
-        <h1>ISP21: CodeQuest</h1>
+        <div className="game-topbar">
+          <img src="/logosolo.svg" alt="Logo ISP" className="game-logo" />
+          <h1>ISP21: CodeQuest</h1>
+        </div>
         <h2>Seleccionar Nivel</h2>
         <p className="level-select-hint">
           Completaste {gameState.unlockedLevels.filter(id => id !== gameState.currentLevel).length} de {LEVELS.length} niveles.
@@ -753,6 +724,10 @@ export default function App() {
 
   return (
     <div className="game-container">
+      <div className="game-topbar">
+        <img src="/logosolo.svg" alt="Logo ISP" className="game-logo" />
+        <h1>ISP21: CodeQuest</h1>
+      </div>
       {celebration === 'confetti' && (
         <div className="confetti-layer" aria-hidden="true">
           {confetti.map(piece => (
@@ -833,7 +808,6 @@ export default function App() {
       )}
 
       <header className="game-header">
-        <h1>ISP21: CodeQuest</h1>
         <h2 className="level-title">{currentLevel.name}</h2>
         <p className="level-info">
           Nivel {currentLevel.id} de {LEVELS.length}

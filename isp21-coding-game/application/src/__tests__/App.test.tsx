@@ -4,6 +4,7 @@ import App from '../App';
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -386,7 +387,7 @@ describe('App', () => {
     fireEvent.click(screen.getByText('▶ Ejecutar'));
     await runToEnd(8000);
 
-    const saved = JSON.parse(localStorage.getItem('isp21-coding-game-state') ?? '{}');
+    const saved = JSON.parse(sessionStorage.getItem('isp21-coding-game-state') ?? '{}');
     expect(saved.unlockedLevels).toContain(2);
     expect(saved.scores['1']).toBe(3);
     expect(saved.points['1']).toBe(100);
@@ -420,7 +421,7 @@ describe('App', () => {
       }
     }
 
-    const saved = JSON.parse(localStorage.getItem('isp21-coding-game-state') ?? '{}');
+    const saved = JSON.parse(sessionStorage.getItem('isp21-coding-game-state') ?? '{}');
     expect(saved.unlockedLevels).toEqual([1, 2, 3, 4, 5, 6]);
     for (const id of [1, 2, 3, 4, 5, 6]) {
       expect(saved.points[String(id)]).toBe(100);
@@ -440,8 +441,8 @@ describe('App', () => {
     expect(spy.mock.calls).toEqual([]);
   });
 
-  it('arranca en el nivel guardado con el estudiante en su posicion inicial', () => {
-    localStorage.setItem('isp21-coding-game-state', JSON.stringify({
+  it('al recargar la página, el progreso se reinicia y arranca desde el nivel 1', () => {
+    sessionStorage.setItem('isp21-coding-game-state', JSON.stringify({
       currentLevel: 3,
       unlockedLevels: [1, 2, 3],
       scores: { 1: 3, 2: 3 },
@@ -452,23 +453,15 @@ describe('App', () => {
     dismissTutorial();
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('ISP21: CodeQuest');
-    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Refactor');
-    expect(screen.getByText('Nivel 3 de 6')).toBeTruthy();
-    expect(metricValue('Óptimo')).toBe('14');
-    expect(statValue('Bloques')).toBe('0/20');
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Primer Commit');
+    expect(screen.getByText('Nivel 1 de 6')).toBeTruthy();
+    expect(metricValue('Óptimo')).toBe('3');
+    expect(statValue('Bloques')).toBe('0/6');
     expect(metricValue('Movimientos')).toBe('0');
+    expect(metricValue('Puntuación')).toBe('—/100');
     expect(screen.getByText('Agrega comandos aquí...')).toBeTruthy();
-
-    const playerEl = document.querySelector('.player') as HTMLElement;
-    const cellEl = playerEl.parentElement as HTMLElement;
-    const rowEl = cellEl.parentElement as HTMLElement;
-    const gridEl = rowEl.parentElement as HTMLElement;
-    const position = {
-      x: Array.from(rowEl.children).indexOf(cellEl),
-      y: Array.from(gridEl.children).indexOf(rowEl),
-    };
-    expect(position).toEqual({ x: 1, y: 3 });
-    expect(playerEl.className).toContain('dir-RIGHT');
+    expect(document.querySelector('.grid')).toBeTruthy();
+    expect(document.querySelector('.player')).toBeTruthy();
   });
 
   it('al elegir otro nivel en el selector, reinicia el tablero de ese nivel', async () => {

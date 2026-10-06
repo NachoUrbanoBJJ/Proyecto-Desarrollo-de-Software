@@ -11,6 +11,40 @@
   min-height: 100vh;
 }
 
+.game-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 0;
+  margin: -20px -20px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+}
+
+.game-topbar h1 {
+  margin: 0;
+  font-size: clamp(1.25rem, 0.9rem + 1.4vw, 1.85rem);
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+
+.game-logo {
+  height: 44px;
+  width: auto;
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  .game-logo {
+    filter: invert(1);
+  }
+}
+
 .game-header {
   margin-bottom: 12px;
 }
@@ -1272,6 +1306,15 @@
   .game-container {
     padding: 14px;
     border-radius: 0;
+  }
+
+  .game-topbar {
+    margin: -14px -14px 14px;
+    border-radius: 0;
+  }
+
+  .game-logo {
+    height: 36px;
   }
 
   .stats-row {
