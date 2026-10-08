@@ -79,4 +79,4 @@ El juego se despliega automáticamente en Vercel con cada push a `main`.
 
 ## Autores
 
-Proyecto realizado por **[Nombre 1]** y **[Nombre 2]**, estudiantes de ISP21.
+Proyecto realizado por **Ignacio Urbano** y **Altair Arias**, estudiantes de ISP21.
