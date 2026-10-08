@@ -3,13 +3,11 @@ import type { CSSProperties } from 'react';
 import type { Command, PlayerState, GameState, CommandBlock, SimpleCommand, ExecutionState, ExecutionStatus, GridMap, Direction, ScoreEntry } from './types';
 import { calculateNextState, blockCount, calculateScore, calculateStars, isWallAhead } from './gameLogic';
 import { LEVELS } from './levels';
+import { GameTopbar } from './components/GameTopbar';
+import { Leaderboard } from './components/Leaderboard';
+import { ScoreBoard } from './components/ScoreBoard';
+import { STORAGE_KEY, NICKNAME_KEY, LEADERBOARD_KEY, LEADERBOARD_MAX, NICKNAME_MAX } from './constants';
 import './App.css';
-
-const STORAGE_KEY = 'isp21-coding-game-state';
-const NICKNAME_KEY = 'isp21-coding-game-nickname';
-const LEADERBOARD_KEY = 'isp21-coding-game-leaderboard';
-const LEADERBOARD_MAX = 5;
-const NICKNAME_MAX = 12;
 const CELEBRATION_MS = 2500;
 const CONFETTI_COUNT = 64;
 const CONFETTI_COLORS = ['#f9c74f', '#f3722c', '#43aa8b', '#577590', '#b5179e', '#4cc9f0', '#90be6d'];
@@ -353,7 +351,7 @@ export default function App() {
     setMessage(text);
     setShowCollision(false);
     setShowVictory(false);
-    setExecutionState({ activeCommandIndex: -1, activeTopLevelIndex: -1, isExecuting: false, executionSpeed: 500, expandedLength: 0 });
+    setExecutionState(prev => ({ ...prev, activeCommandIndex: -1, activeTopLevelIndex: -1, isExecuting: false, expandedLength: 0 }));
     setExecutionStatus('idle');
     setVisitedCells(new Set());
     setCollidedCell(null);
@@ -421,6 +419,7 @@ export default function App() {
     }));
 
     let collided = false;
+    let reachedGoal = false;
 
     for (let i = 0; i < expanded.length; i++) {
       const step = expanded[i];
@@ -465,6 +464,11 @@ export default function App() {
 
       setPlayer({ ...currentPlayerState });
       await new Promise(resolve => setTimeout(resolve, speed));
+
+      if (currentLevel.map[currentPlayerState.position.y]?.[currentPlayerState.position.x] === 2) {
+        reachedGoal = true;
+        break;
+      }
     }
 
     setExecutionState(prev => ({
@@ -484,8 +488,7 @@ export default function App() {
     setShowCollision(false);
     setCollidedCell(null);
 
-    const { x, y } = currentPlayerState.position;
-    if (currentLevel.map[y]?.[x] === 2) {
+    if (reachedGoal) {
       setShowVictory(true);
       playVictorySound();
 
@@ -674,76 +677,10 @@ export default function App() {
     try { localStorage.removeItem(NICKNAME_KEY); } catch { return; }
   };
 
-  const renderLeaderboard = (compact = false) => {
-    if (leaderboard.length === 0) return null;
-    return (
-      <div className={`score-board leaderboard ${compact ? 'compact' : ''}`}>
-        <h3 className="score-board-title">🏆 Top 5</h3>
-        <ol className="leaderboard-list">
-          {leaderboard.map((entry, index) => (
-            <li key={`${entry.nickname}-${entry.date}`}>
-              <span className="leaderboard-rank">{index + 1}º</span>
-              <span className="leaderboard-name">{entry.nickname}</span>
-              <span className="leaderboard-stars">{entry.stars}/{LEVELS.length * 3}★</span>
-              <span className="leaderboard-score">{entry.score} pts</span>
-            </li>
-          ))}
-        </ol>
-      </div>
-    );
-  };
-
-  const renderScoreBoard = (compact = false) => (
-    <div className={`score-board ${compact ? 'compact' : ''}`}>
-      <h3 className="score-board-title">🏆 Score</h3>
-      {!nickname ? (
-        <div className="score-nickname">
-          <label htmlFor="nickname-input">Tu apodo:</label>
-          <input
-            id="nickname-input"
-            type="text"
-            maxLength={NICKNAME_MAX}
-            value={nicknameDraft}
-            onChange={e => setNicknameDraft(e.target.value)}
-            placeholder="Apodo corto"
-            className="nickname-input"
-          />
-          <button onClick={handleNicknameSave} disabled={!nicknameDraft.trim()} className="btn-nickname">
-            Guardar
-          </button>
-        </div>
-      ) : (
-        <p className="score-player">Jugador: <strong>{nickname}</strong></p>
-      )}
-      <ul className="score-rows">
-        {LEVELS.map(level => {
-          const stars = gameState.scores[level.id] || 0;
-          const points = gameState.points[level.id] || 0;
-          return (
-            <li key={level.id}>
-              <span className="score-level">Nivel {level.id}</span>
-              <span className="score-stars">
-                {stars > 0 ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : '—'}
-              </span>
-              <span className="score-points">{points > 0 ? `${points} pts` : '—'}</span>
-            </li>
-          );
-        })}
-      </ul>
-      <p className="score-total">
-        Total: <strong>{totalStars}★ / {LEVELS.length * 3}</strong>
-        <span className="score-total-points">{totalPoints} pts</span>
-      </p>
-    </div>
-  );
-
   if (showLevelSelect) {
     return (
       <div className="game-container">
-        <div className="game-topbar">
-          <img src="/logosolo.svg" alt="Logo ISP" className="game-logo" />
-          <h1>ISP21: CodeQuest</h1>
-        </div>
+        <GameTopbar />
         <h2>Seleccionar Nivel</h2>
         <p className="level-select-hint">
           Completaste {gameState.unlockedLevels.filter(id => id !== gameState.currentLevel).length} de {LEVELS.length} niveles.
@@ -785,8 +722,17 @@ export default function App() {
             );
           })}
         </div>
-        {renderScoreBoard()}
-        {renderLeaderboard()}
+        <ScoreBoard
+          gameState={gameState}
+          nickname={nickname}
+          nicknameDraft={nicknameDraft}
+          nicknameMax={NICKNAME_MAX}
+          totalStars={totalStars}
+          totalPoints={totalPoints}
+          onDraftChange={setNicknameDraft}
+          onSave={handleNicknameSave}
+        />
+        <Leaderboard entries={leaderboard} totalLevels={LEVELS.length} />
         <button className="btn-back" onClick={() => setShowLevelSelect(false)}>
           ← Volver
         </button>
@@ -846,8 +792,20 @@ export default function App() {
             </ul>
             <div className="modal-actions">
               {isLastLevel && <p className="victory-final">¡Completaste los {LEVELS.length} niveles! 🏆</p>}
-              {isLastLevel && renderScoreBoard(true)}
-              {renderLeaderboard(true)}
+              {isLastLevel && (
+                <ScoreBoard
+                  gameState={gameState}
+                  nickname={nickname}
+                  nicknameDraft={nicknameDraft}
+                  nicknameMax={NICKNAME_MAX}
+                  totalStars={totalStars}
+                  totalPoints={totalPoints}
+                  onDraftChange={setNicknameDraft}
+                  onSave={handleNicknameSave}
+                  compact
+                />
+              )}
+              <Leaderboard entries={leaderboard} totalLevels={LEVELS.length} compact />
               <button className="btn-primary" onClick={continueFromModal} autoFocus>
                 {isLastLevel ? 'Jugar de nuevo' : `Continuar al Nivel ${nextLevelId}`}
               </button>
@@ -927,7 +885,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {renderLeaderboard(true)}
+          <Leaderboard entries={leaderboard} totalLevels={LEVELS.length} compact />
         </div>
       )}
 

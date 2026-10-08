@@ -510,4 +510,39 @@ describe('App', () => {
     expect(first.textContent).toContain('500 pts');
     expect(second.textContent).toContain('B');
   });
+
+  it('al llegar a la meta corta la ejecución sin colisionar si sobran movimientos', async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    dismissTutorial();
+
+    // 5 Avanzar(): la meta está en el paso 3; los pasos 4-5 chocan contra la pared.
+    addSequence([...av(5)]);
+    fireEvent.click(screen.getByText('▶ Ejecutar'));
+    await runToEnd(8000);
+
+    expect(screen.queryByText(/Cuidado, estás chocando/)).toBeNull();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.textContent).toContain('Nivel 1 completado');
+    expect(dialog.textContent).toContain('100/100');
+  });
+
+  it('mantiene la velocidad seleccionada entre niveles', async () => {
+    vi.useFakeTimers();
+    render(<App />);
+    dismissTutorial();
+
+    addSequence(SOLUTIONS[1]);
+    fireEvent.click(screen.getByText('▶ Ejecutar'));
+    await runToEnd(8000);
+    fireEvent.click(screen.getByText('⚡'));
+
+    fireEvent.click(screen.getByText('Continuar al Nivel 2'));
+    addSequence(SOLUTIONS[2]);
+    fireEvent.click(screen.getByText('▶ Ejecutar'));
+    await runToEnd(OPTIMAL[2] * 500 + 4000);
+
+    expect(screen.getByText('⚡').className).toContain('active');
+    expect(screen.getByText('Normal').className).not.toContain('active');
+  });
 });
