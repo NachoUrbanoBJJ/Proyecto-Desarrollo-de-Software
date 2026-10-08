@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
-import type { Command, PlayerState, GameState, CommandBlock, SimpleCommand, ExecutionState, ExecutionStatus, GridMap, Direction } from './types';
+import type { Command, PlayerState, GameState, CommandBlock, SimpleCommand, ExecutionState, ExecutionStatus, GridMap, Direction, ScoreEntry } from './types';
 import { calculateNextState, blockCount, calculateScore, calculateStars, isWallAhead } from './gameLogic';
 import { LEVELS } from './levels';
 import './App.css';
 
 const STORAGE_KEY = 'isp21-coding-game-state';
 const NICKNAME_KEY = 'isp21-coding-game-nickname';
+const LEADERBOARD_KEY = 'isp21-coding-game-leaderboard';
+const LEADERBOARD_MAX = 5;
 const NICKNAME_MAX = 12;
 const CELEBRATION_MS = 2500;
 const CONFETTI_COUNT = 64;
@@ -223,6 +225,23 @@ export default function App() {
     try { return localStorage.getItem(NICKNAME_KEY) ?? ''; } catch { return ''; }
   });
   const [nicknameDraft, setNicknameDraft] = useState('');
+  const [leaderboard, setLeaderboard] = useState<ScoreEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem(LEADERBOARD_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((entry): entry is ScoreEntry =>
+          !!entry && typeof entry === 'object'
+          && typeof (entry as ScoreEntry).nickname === 'string'
+          && Number.isFinite((entry as ScoreEntry).score))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, LEADERBOARD_MAX);
+    } catch {
+      return [];
+    }
+  });
   const [runResult, setRunResult] = useState<{ moves: number; points: number; stars: number } | null>(null);
   const [celebration, setCelebration] = useState<'none' | 'confetti' | 'modal'>('none');
   const [confetti, setConfetti] = useState<ConfettiPiece[]>([]);
@@ -526,14 +545,44 @@ export default function App() {
     resetRunState("¡Ayuda al estudiante a llegar al mate!", target.start);
   }, [currentLevel.id, resetRunState]);
 
+  const totalStars = LEVELS.reduce((acc, level) => acc + (gameState.scores[level.id] || 0), 0);
+  const totalPoints = LEVELS.reduce((acc, level) => acc + (gameState.points[level.id] || 0), 0);
+
+  const recordRunScore = useCallback((score: number, stars: number) => {
+    const entry: ScoreEntry = {
+      nickname: nickname.trim() || 'Anónimo',
+      score,
+      stars,
+      date: new Date().toISOString(),
+    };
+    setLeaderboard(prev => {
+      const next = [...prev, entry]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, LEADERBOARD_MAX);
+      try { localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(next)); } catch { /* empty */ }
+      return next;
+    });
+  }, [nickname]);
+
+  const startNewRun = useCallback(() => {
+    if (totalPoints > 0) recordRunScore(totalPoints, totalStars);
+    clearCelebration();
+    setShowLevelSelect(false);
+    setGameState({ currentLevel: 1, unlockedLevels: [1], scores: {}, points: {} });
+    saveGameState({ currentLevel: 1, unlockedLevels: [1], scores: {}, points: {} });
+    setNickname('');
+    setNicknameDraft('');
+    try { localStorage.removeItem(NICKNAME_KEY); } catch { /* empty */ }
+    resetRunState("¡Ayuda al estudiante a llegar al mate! Escribí tu apodo para empezar.", LEVELS[0].start);
+  }, [totalPoints, totalStars, recordRunScore, clearCelebration, resetRunState]);
+
   const continueFromModal = useCallback(() => {
     if (isLastLevel) {
-      clearCelebration();
-      setShowLevelSelect(true);
+      startNewRun();
       return;
     }
     advanceLevel();
-  }, [isLastLevel, clearCelebration, advanceLevel]);
+  }, [isLastLevel, startNewRun, advanceLevel]);
 
   useEffect(() => {
     if (celebration !== 'modal') return;
@@ -611,15 +660,37 @@ export default function App() {
     );
   };
 
-  const totalStars = LEVELS.reduce((acc, level) => acc + (gameState.scores[level.id] || 0), 0);
-  const totalPoints = LEVELS.reduce((acc, level) => acc + (gameState.points[level.id] || 0), 0);
-
   const handleNicknameSave = () => {
     const clean = nicknameDraft.trim().replace(/\s+/g, ' ').slice(0, NICKNAME_MAX);
     if (!clean) return;
     setNickname(clean);
     setNicknameDraft('');
     try { localStorage.setItem(NICKNAME_KEY, clean); } catch { return; }
+  };
+
+  const handleNicknameClear = () => {
+    setNickname('');
+    setNicknameDraft('');
+    try { localStorage.removeItem(NICKNAME_KEY); } catch { return; }
+  };
+
+  const renderLeaderboard = (compact = false) => {
+    if (leaderboard.length === 0) return null;
+    return (
+      <div className={`score-board leaderboard ${compact ? 'compact' : ''}`}>
+        <h3 className="score-board-title">🏆 Top 5</h3>
+        <ol className="leaderboard-list">
+          {leaderboard.map((entry, index) => (
+            <li key={`${entry.nickname}-${entry.date}`}>
+              <span className="leaderboard-rank">{index + 1}º</span>
+              <span className="leaderboard-name">{entry.nickname}</span>
+              <span className="leaderboard-stars">{entry.stars}/{LEVELS.length * 3}★</span>
+              <span className="leaderboard-score">{entry.score} pts</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
   };
 
   const renderScoreBoard = (compact = false) => (
@@ -715,6 +786,7 @@ export default function App() {
           })}
         </div>
         {renderScoreBoard()}
+        {renderLeaderboard()}
         <button className="btn-back" onClick={() => setShowLevelSelect(false)}>
           ← Volver
         </button>
@@ -775,8 +847,9 @@ export default function App() {
             <div className="modal-actions">
               {isLastLevel && <p className="victory-final">¡Completaste los {LEVELS.length} niveles! 🏆</p>}
               {isLastLevel && renderScoreBoard(true)}
+              {renderLeaderboard(true)}
               <button className="btn-primary" onClick={continueFromModal} autoFocus>
-                {isLastLevel ? 'Volver al selector de niveles' : `Continuar al Nivel ${nextLevelId}`}
+                {isLastLevel ? 'Jugar de nuevo' : `Continuar al Nivel ${nextLevelId}`}
               </button>
               <div className="modal-actions-row">
                 <button className="btn-secondary" onClick={resetLevel}>Reintentar</button>
@@ -827,6 +900,36 @@ export default function App() {
           {renderStars(currentLevel.id, 'large')}
         </div>
       </header>
+
+      {currentLevel.id === 1 && (
+        <div className="nickname-panel">
+          {!nickname ? (
+            <div className="score-nickname">
+              <label htmlFor="nickname-input-level1">Tu apodo:</label>
+              <input
+                id="nickname-input-level1"
+                type="text"
+                maxLength={NICKNAME_MAX}
+                value={nicknameDraft}
+                onChange={e => setNicknameDraft(e.target.value)}
+                placeholder="Apodo corto"
+                className="nickname-input"
+              />
+              <button onClick={handleNicknameSave} disabled={!nicknameDraft.trim()} className="btn-nickname">
+                Guardar apodo
+              </button>
+            </div>
+          ) : (
+            <div className="score-nickname">
+              <span>Jugador: <strong>{nickname}</strong> — este apodo suma su score cuando completes el nivel final.</span>
+              <button onClick={handleNicknameClear} className="btn-nickname">
+                Cambiar apodo
+              </button>
+            </div>
+          )}
+          {renderLeaderboard(true)}
+        </div>
+      )}
 
       <div className={`execution-progress ${executionStatus === 'idle' ? 'hidden' : ''}`}>
         <div

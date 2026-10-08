@@ -31,6 +31,13 @@ export interface GameState {
     points: Record<number, number>;
 }
 
+export interface ScoreEntry {
+    nickname: string;
+    score: number;
+    stars: number;
+    date: string;
+}
+
 export type CommandBlock =
     | { type: 'command'; command: SimpleCommand }
     | { type: 'repeat'; times: number; children: CommandBlock[] }

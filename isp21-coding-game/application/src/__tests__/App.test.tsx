@@ -416,17 +416,18 @@ describe('App', () => {
         fireEvent.click(screen.getByText(`Continuar al Nivel ${id + 1}`));
       } else {
         expect(dialog.textContent).toContain('¡Completaste los 6 niveles!');
-        expect(screen.getByText('Volver al selector de niveles')).toBeTruthy();
-        fireEvent.click(screen.getByText('Volver al selector de niveles'));
+        expect(screen.getByText('Jugar de nuevo')).toBeTruthy();
+        fireEvent.click(screen.getByText('Jugar de nuevo'));
       }
     }
 
-    const saved = JSON.parse(sessionStorage.getItem('isp21-coding-game-state') ?? '{}');
-    expect(saved.unlockedLevels).toEqual([1, 2, 3, 4, 5, 6]);
-    for (const id of [1, 2, 3, 4, 5, 6]) {
-      expect(saved.points[String(id)]).toBe(100);
-      expect(saved.scores[String(id)]).toBe(3);
-    }
+    expect(screen.getByText('Nivel 1 de 6')).toBeTruthy();
+
+    const board = JSON.parse(localStorage.getItem('isp21-coding-game-leaderboard') ?? '[]');
+    expect(board).toHaveLength(1);
+    expect(board[0].nickname).toBe('Anónimo');
+    expect(board[0].score).toBe(600);
+    expect(board[0].stars).toBe(18);
   }, 30000);
 
   it('no escribe errores en consola al completar un nivel', async () => {
@@ -479,5 +480,34 @@ describe('App', () => {
     expect(statValue('Bloques')).toBe('0/6');
     expect(metricValue('Óptimo')).toBe('3');
     expect(metricValue('Puntuación')).toBe('—/100');
+  });
+
+  it('muestra la opción de agregar el apodo desde el primer nivel', () => {
+    render(<App />);
+    dismissTutorial();
+
+    const input = screen.getByLabelText('Tu apodo:') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Messi' } });
+    fireEvent.click(screen.getByText('Guardar apodo'));
+
+    expect(screen.getByText('Messi')).toBeTruthy();
+    expect(screen.queryByLabelText('Tu apodo:')).toBeNull();
+    expect(screen.getByText('Cambiar apodo')).toBeTruthy();
+  });
+
+  it('el top 5 persiste y se ordena por puntaje', () => {
+    localStorage.setItem('isp21-coding-game-leaderboard', JSON.stringify([
+      { nickname: 'B', score: 300, stars: 9, date: '2026-01-01T00:00:00.000Z' },
+      { nickname: 'A', score: 500, stars: 15, date: '2026-01-02T00:00:00.000Z' },
+    ]));
+
+    render(<App />);
+    dismissTutorial();
+
+    const first = screen.getByText('1º').parentElement as HTMLElement;
+    const second = screen.getByText('2º').parentElement as HTMLElement;
+    expect(first.textContent).toContain('A');
+    expect(first.textContent).toContain('500 pts');
+    expect(second.textContent).toContain('B');
   });
 });
